@@ -1,14 +1,14 @@
 /*
- * test_fft.c — Phase 2-B: 1024点FFTテスト (TDD Red)
+ * test_fft.c — Phase 2-B: 1024-point FFT tests (TDD Red)
  *
- * 検証対象:
- *   - 1024点 Radix-2 DIT FFT / iFFT
- *   - インパルス応答 (時間域デルタ → 周波数域フラット)
- *   - Parseval定理 (時間域エネルギー = 周波数域エネルギー)
- *   - ラウンドトリップ (FFT → iFFT → 元信号)
- *   - twiddle factor 精度 (カテゴリ1)
+ * Test targets:
+ *   - 1024-point Radix-2 DIT FFT / iFFT
+ *   - Impulse response (time-domain delta -> flat frequency-domain)
+ *   - Parseval's theorem (time-domain energy = frequency-domain energy)
+ *   - Roundtrip (FFT -> iFFT -> original signal)
+ *   - Twiddle factor precision (category 1)
  *
- * コンパイル:
+ * Compile:
  *   gcc -I tests/engine/unity -I src/engine/common \
  *       tests/engine/unity/unity.c tests/engine/test_fft.c \
  *       src/engine/common/fft.c -o test_fft -lm
@@ -39,7 +39,7 @@ void setUp(void) {
 
 void tearDown(void) {}
 
-/* --- インパルス応答 --- */
+/* --- Impulse response --- */
 
 void test_fft_impulse_response(void) {
     real_buf[0] = 1.0f;
@@ -51,7 +51,7 @@ void test_fft_impulse_response(void) {
     }
 }
 
-/* --- DC信号 --- */
+/* --- DC signal --- */
 
 void test_fft_dc_signal(void) {
     for (int i = 0; i < N_FFT; i++) real_buf[i] = 1.0f;
@@ -65,7 +65,7 @@ void test_fft_dc_signal(void) {
     }
 }
 
-/* --- 純正弦波 --- */
+/* --- Pure sine wave --- */
 
 void test_fft_single_frequency(void) {
     int bin = 32;
@@ -84,7 +84,7 @@ void test_fft_single_frequency(void) {
     }
 }
 
-/* --- Parseval定理 --- */
+/* --- Parseval's theorem --- */
 
 void test_fft_parseval_theorem(void) {
     for (int n = 0; n < N_FFT; n++) {
@@ -109,7 +109,7 @@ void test_fft_parseval_theorem(void) {
     TEST_ASSERT_FLOAT_WITHIN((float)(time_energy * 1e-5), (float)time_energy, (float)freq_energy);
 }
 
-/* --- ラウンドトリップ (FFT → iFFT) --- */
+/* --- Roundtrip (FFT -> iFFT) --- */
 
 void test_fft_roundtrip(void) {
     for (int n = 0; n < N_FFT; n++) {
@@ -144,7 +144,7 @@ void test_fft_roundtrip_complex_input(void) {
     }
 }
 
-/* --- twiddle factor精度 (カテゴリ1) --- */
+/* --- Twiddle factor precision (category 1) --- */
 
 void test_fft_twiddle_precision(void) {
     const float* tw_re = fe_fft_get_twiddle_re();
@@ -153,8 +153,8 @@ void test_fft_twiddle_precision(void) {
     TEST_ASSERT_NOT_NULL(tw_im);
 
     for (int k = 0; k < N_FFT / 2; k++) {
-        /* twiddle factorsはdouble精度で計算後floatにキャストされるため、
-           テスト側もdouble精度で計算してfloatに変換する */
+        /* Since twiddle factors are computed in double precision then cast to float,
+           the test also computes in double precision and converts to float */
         float expected_re = (float)cos(2.0 * M_PI * (double)k / (double)N_FFT);
         float expected_im = (float)(-sin(2.0 * M_PI * (double)k / (double)N_FFT));
         TEST_ASSERT_FLOAT_WITHIN(1e-7f, expected_re, tw_re[k]);
@@ -162,7 +162,7 @@ void test_fft_twiddle_precision(void) {
     }
 }
 
-/* --- ゼロ入力 --- */
+/* --- Zero input --- */
 
 void test_fft_all_zeros(void) {
     fe_fft(real_buf, imag_buf, N_FFT);
@@ -172,7 +172,7 @@ void test_fft_all_zeros(void) {
     }
 }
 
-/* --- 線形性 --- */
+/* --- Linearity --- */
 
 void test_fft_linearity(void) {
     float real_a[N_FFT], imag_a[N_FFT];
@@ -196,7 +196,7 @@ void test_fft_linearity(void) {
     }
 }
 
-/* --- 共役対称性 (実数入力) --- */
+/* --- Conjugate symmetry (real input) --- */
 
 void test_fft_conjugate_symmetry(void) {
     for (int n = 0; n < N_FFT; n++) {

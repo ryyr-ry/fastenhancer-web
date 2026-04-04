@@ -1,14 +1,14 @@
 /*
- * test_conv.c — Phase 2-D: 畳み込みテスト (TDD Red)
+ * test_conv.c — Phase 2-D: Convolution Tests (TDD Red)
  *
- * 検証対象:
- *   - Conv1d (通常1次元畳み込み)
- *   - StridedConv1d (stride=4, Encoder用)
- *   - ConvTranspose1d (stride=4, Decoder用)
- *   - 既知重みでの期待出力
- *   - BatchNorm融合済み (y = x*scale + bias 形式)
+ * Test targets:
+ *   - Conv1d (standard 1D convolution)
+ *   - StridedConv1d (stride=4, for Encoder)
+ *   - ConvTranspose1d (stride=4, for Decoder)
+ *   - Expected output with known weights
+ *   - BatchNorm fused (y = x*scale + bias form)
  *
- * コンパイル:
+ * Compile:
  *   gcc -I tests/engine/unity -I src/engine/common \
  *       tests/engine/unity/unity.c tests/engine/test_conv.c \
  *       src/engine/common/conv.c -o test_conv -lm
@@ -23,10 +23,10 @@
 void setUp(void) {}
 void tearDown(void) {}
 
-/* --- Conv1d 基本テスト --- */
+/* --- Conv1d basic tests --- */
 
 void test_conv1d_identity_kernel(void) {
-    /* カーネル=[1.0], 入力=[1,2,3,4] → 出力=[1,2,3,4] */
+    /* kernel=[1.0], input=[1,2,3,4] → output=[1,2,3,4] */
     float input[4] = {1.0f, 2.0f, 3.0f, 4.0f};
     float weight[1] = {1.0f};
     float bias = 0.0f;
@@ -56,7 +56,7 @@ void test_conv1d_with_bias(void) {
 }
 
 void test_conv1d_known_kernel3(void) {
-    /* カーネル=[1,2,1], 入力=[1,0,1,0,1], padding=1 → 畳み込み結果を検証 */
+    /* kernel=[1,2,1], input=[1,0,1,0,1], padding=1 → verify convolution result */
     float input[5] = {1.0f, 0.0f, 1.0f, 0.0f, 1.0f};
     float weight[3] = {1.0f, 2.0f, 1.0f};
     float bias = 0.0f;
@@ -65,7 +65,7 @@ void test_conv1d_known_kernel3(void) {
     fe_conv1d(input, weight, &bias, output,
               5, 1, 1, 3, 1, 1);
 
-    /* 手計算:
+    /* Manual calculation:
      * out[0] = 0*1 + 1*2 + 0*1 = 2
      * out[1] = 1*1 + 0*2 + 1*1 = 2
      * out[2] = 0*1 + 1*2 + 0*1 = 2
@@ -94,7 +94,7 @@ void test_conv1d_all_zeros_input(void) {
 /* --- StridedConv1d (Encoder) --- */
 
 void test_strided_conv1d_stride4_kernel8(void) {
-    /* FastEnhancer Tiny Encoder第1層: kernel=8, stride=4 */
+    /* FastEnhancer Tiny Encoder layer 1: kernel=8, stride=4 */
     float input[32];
     for (int i = 0; i < 32; i++) input[i] = (float)i;
 
@@ -102,7 +102,7 @@ void test_strided_conv1d_stride4_kernel8(void) {
     for (int i = 0; i < 8; i++) weight[i] = 1.0f / 8.0f;
     float bias = 0.0f;
 
-    /* 出力長: (32 - 8) / 4 + 1 = 7 */
+    /* Output length: (32 - 8) / 4 + 1 = 7 */
     float output[7];
 
     fe_strided_conv1d(input, weight, &bias, output,
@@ -113,7 +113,7 @@ void test_strided_conv1d_stride4_kernel8(void) {
         TEST_ASSERT_FALSE(isinf(output[i]));
     }
 
-    /* 平均化カーネルの結果: 各出力は8連続サンプルの平均 */
+    /* Averaging kernel result: each output is the mean of 8 consecutive samples */
     TEST_ASSERT_FLOAT_WITHIN(1e-5f, 3.5f, output[0]);
     TEST_ASSERT_FLOAT_WITHIN(1e-5f, 7.5f, output[1]);
 }
@@ -135,7 +135,7 @@ void test_strided_conv1d_output_length(void) {
 }
 
 void test_strided_conv1d_multichannel(void) {
-    /* 入力: 2ch × 16サンプル, カーネル: 3×2ch→4ch, stride=4 */
+    /* Input: 2ch × 16 samples, kernel: 3×2ch→4ch, stride=4 */
     int in_ch = 2, out_ch = 4, kernel_size = 3, stride = 4, in_len = 16;
     float input[2 * 16];
     float weight[4 * 2 * 3];
@@ -157,7 +157,7 @@ void test_strided_conv1d_multichannel(void) {
 /* --- ConvTranspose1d (Decoder) --- */
 
 void test_conv_transpose1d_stride4(void) {
-    /* 入力長5, stride=4 → 出力長 = (5-1)*4 + 8 - 2*0 = 24 (padding=0) */
+    /* Input length 5, stride=4 → output length = (5-1)*4 + 8 - 2*0 = 24 (padding=0) */
     float input[5] = {1.0f, 0.0f, 0.0f, 0.0f, 0.0f};
     float weight[8];
     for (int i = 0; i < 8; i++) weight[i] = 1.0f;
@@ -171,14 +171,14 @@ void test_conv_transpose1d_stride4(void) {
 
     TEST_ASSERT_EQUAL_INT(expected_out_len, out_len);
 
-    /* 最初のインパルスの応答: weight全体 */
+    /* First impulse response: entire weight vector */
     for (int i = 0; i < 8; i++) {
         TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.0f, output[i]);
     }
 }
 
 void test_conv_transpose1d_is_upsampling(void) {
-    /* stride=4のConvTranspose1dは4倍アップサンプリング */
+    /* ConvTranspose1d with stride=4 performs 4x upsampling */
     float input[4] = {1.0f, 2.0f, 3.0f, 4.0f};
     float weight[1] = {1.0f};
     float bias = 0.0f;
@@ -187,20 +187,20 @@ void test_conv_transpose1d_is_upsampling(void) {
     int out_len = fe_conv_transpose1d(input, weight, &bias, output,
                                       4, 1, 1, 1, 4, /*padding=*/0);
 
-    /* kernel_size=1, stride=4 → 出力は入力を4倍に引き伸ばし（ゼロ挿入） */
+    /* kernel_size=1, stride=4 → output stretches input by 4x (zero insertion) */
     TEST_ASSERT_EQUAL_INT(13, out_len);  /* (4-1)*4 + 1 = 13 */
 }
 
-/* --- ConvTranspose1d padding テスト (3B-0a) --- */
+/* --- ConvTranspose1d padding test (3B-0a) --- */
 
 void test_conv_transpose1d_padding_basic(void) {
-    /* padding=1: フル出力からpadding分を前後トリム
+    /* padding=1: trim padding from both ends of full output
      * in_len=2, kernel=4, stride=2, padding=1
      * Full: (2-1)*2+4 = 6
      * Padded: 6-2*1 = 4
      *
      * Input=[1,0], Weight=[1,2,3,4], bias=0
-     * Full output: [1,2,3,4,0,0] (input[0]が位置0..3に散布)
+     * Full output: [1,2,3,4,0,0] (input[0] scattered to positions 0..3)
      * Trim padding=1: out[1..4] = [2,3,4,0]
      */
     float input[2] = {1.0f, 0.0f};
@@ -219,7 +219,7 @@ void test_conv_transpose1d_padding_basic(void) {
 }
 
 void test_conv_transpose1d_padding2_decoder_postnet(void) {
-    /* Decoder PostNetの次元テスト:
+    /* Decoder PostNet dimension test:
      * in_len=128, kernel=8, stride=4, padding=2
      * Output: (128-1)*4+8-2*2 = 508+4 = 512 */
     int in_len = 128, in_ch = 1, out_ch = 1;
@@ -246,7 +246,7 @@ void test_conv_transpose1d_padding2_decoder_postnet(void) {
 }
 
 void test_conv_transpose1d_padding_multichannel(void) {
-    /* 多チャネル+padding: in_ch=2, out_ch=2, padding=1 */
+    /* Multichannel + padding: in_ch=2, out_ch=2, padding=1 */
     int in_len = 4, in_ch = 2, out_ch = 2;
     int kernel = 4, stride = 2, padding = 1;
     int expected_out_len = (in_len - 1) * stride + kernel - 2 * padding;
@@ -271,12 +271,12 @@ void test_conv_transpose1d_padding_multichannel(void) {
     }
 }
 
-/* --- BatchNorm融合テスト --- */
+/* --- BatchNorm fusion test --- */
 
 void test_conv1d_batchnorm_fused(void) {
-    /* BatchNorm融合済み: y = x*scale + bias
+    /* BatchNorm fused: y = x*scale + bias
      * weight=1.0, conv_bias=0, bn_scale=2.0, bn_bias=1.0
-     * → 最終出力 = conv_out * 2.0 + 1.0 */
+     * → final output = conv_out * 2.0 + 1.0 */
     float input[4] = {1.0f, 2.0f, 3.0f, 4.0f};
     float weight[1] = {1.0f};
     float bn_scale = 2.0f;
@@ -292,7 +292,7 @@ void test_conv1d_batchnorm_fused(void) {
     }
 }
 
-/* --- Encoder→Decoder対称性 --- */
+/* --- Encoder→Decoder symmetry --- */
 
 void test_encoder_decoder_dimension_consistency(void) {
     /* Encoder PreNet: StridedConv1d(2→C1, k=8, s=4, pad=2) on F_BINS=512
@@ -323,7 +323,7 @@ void test_encoder_decoder_dimension_consistency(void) {
                         dec_out, FE_F1, FE_C1, 2,
                         FE_ENC_K0, FE_STRIDE, FE_ENC_PRE_PAD);
 
-    /* 次元が正しく戻ることを確認 (クラッシュしない = 次元整合) */
+    /* Verify dimensions are correctly restored (no crash = dimensional consistency) */
     for (int i = 0; i < 2 * 512; i++) {
         TEST_ASSERT_FALSE(isnan(dec_out[i]));
     }

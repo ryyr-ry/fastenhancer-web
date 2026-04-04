@@ -1,5 +1,5 @@
 /*
- * attention.c — Multi-Head Self-Attention の実装
+ * attention.c — Implementation of Multi-Head Self-Attention
  *
  * Q = input × W_q + b_q
  * K = input × W_k + b_k
@@ -8,7 +8,7 @@
  * attn = softmax(scores)
  * out = concat(attn × V_h) × W_o + b_o
  *
- * linear_transformとドット積にSIMD(f32x4)を使用。
+ * Uses SIMD (f32x4) for linear_transform and dot products.
  */
 
 #include "attention.h"
@@ -20,20 +20,20 @@
 void fe_softmax(const float* input, float* output, int n) {
     if (n <= 0) return;
 
-    /* 1パス目: 最大値のみ */
+    /* Pass 1: Find maximum only */
     float max_val = input[0];
     for (int i = 1; i < n; i++) {
         if (input[i] > max_val) max_val = input[i];
     }
 
-    /* NaN入力の場合: max_valがNaNになる → 均一分布にフォールバック */
+    /* For NaN input: max_val becomes NaN -> fall back to uniform distribution */
     if (fe_is_nan_bits(max_val)) {
         float uniform = 1.0f / (float)n;
         for (int i = 0; i < n; i++) output[i] = uniform;
         return;
     }
 
-    /* +Inf入力の場合: max_val=+Inf → +Inf位置で等分 */
+    /* For +Inf input: max_val=+Inf -> distribute equally among +Inf positions */
     if (fe_is_pos_inf(max_val)) {
         int inf_count = 0;
         for (int i = 0; i < n; i++) {
@@ -46,7 +46,7 @@ void fe_softmax(const float* input, float* output, int n) {
         return;
     }
 
-    /* 通常パス: SIMD高速exp */
+    /* Normal path: SIMD fast exp */
     const int n4 = n & ~3;
     f32x4 vmax = f32x4_splat(max_val);
     f32x4 vsum = f32x4_splat(0.0f);
@@ -82,9 +82,9 @@ void fe_softmax(const float* input, float* output, int n) {
     }
 }
 
-/* 行列×行列: output[s][j] = sum_k input[s][k] * weight[j][k] + bias[j]
- * 重みレイアウト: [out_dim × in_dim] (PyTorch nn.Linear互換)
- * 内部ループにfe_matvec_addを使用。 */
+/* Matrix x matrix: output[s][j] = sum_k input[s][k] * weight[j][k] + bias[j]
+ * Weight layout: [out_dim x in_dim] (PyTorch nn.Linear compatible)
+ * Uses fe_matvec_add for the inner loop. */
 static void linear_transform(const float* input, const float* weight,
                               const float* bias, float* output,
                               int seq_len, int in_dim, int out_dim) {
@@ -108,7 +108,7 @@ void fe_mhsa(const FeMhsaWeights* w, const float* input,
 
     float scale = 1.0f / sqrtf((float)head_dim);
 
-    /* scratch レイアウト: Q[seq*c2] | K[seq*c2] | V[seq*c2] | attn_out[seq*c2] */
+    /* scratch layout: Q[seq*c2] | K[seq*c2] | V[seq*c2] | attn_out[seq*c2] */
     float* Q = scratch;
     float* K = scratch + seq_len * c2;
     float* V = scratch + 2 * seq_len * c2;
@@ -123,7 +123,7 @@ void fe_mhsa(const FeMhsaWeights* w, const float* input,
     for (int h = 0; h < n_heads; h++) {
         int head_offset = h * head_dim;
 
-        /* scores[i][j] = Q_h[i] · K_h[j] / sqrt(d) — SIMD化 */
+        /* scores[i][j] = Q_h[i] . K_h[j] / sqrt(d) — SIMD vectorized */
         for (int i = 0; i < seq_len; i++) {
             const float* qi = Q + i * c2 + head_offset;
             for (int j = 0; j < seq_len; j++) {
@@ -141,13 +141,13 @@ void fe_mhsa(const FeMhsaWeights* w, const float* input,
             }
         }
 
-        /* softmax (行方向, in-place) */
+        /* softmax (row-wise, in-place) */
         for (int i = 0; i < seq_len; i++) {
             float* row = &attn_buf[h * seq_len * seq_len + i * seq_len];
             fe_softmax(row, row, seq_len);
         }
 
-        /* attn_out_h[i][d] = sum_j attn[i][j] * V_h[j][d] — SIMD化 */
+        /* attn_out_h[i][d] = sum_j attn[i][j] * V_h[j][d] — SIMD vectorized */
         for (int i = 0; i < seq_len; i++) {
             const float* attn_row = &attn_buf[h * seq_len * seq_len + i * seq_len];
             float* out_row = attn_out + i * c2 + head_offset;
@@ -169,6 +169,6 @@ void fe_mhsa(const FeMhsaWeights* w, const float* input,
         }
     }
 
-    /* 出力射影: output = attn_out × W_o + b_o */
+    /* Output projection: output = attn_out x W_o + b_o */
     linear_transform(attn_out, w->W_o, w->b_o, output, seq_len, c2, c2);
 }

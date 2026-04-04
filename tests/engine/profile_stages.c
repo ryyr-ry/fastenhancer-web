@@ -1,14 +1,14 @@
 /*
- * profile_stages.c — パイプラインステージ別プロファイラ
+ * profile_stages.c — Pipeline stage-by-stage profiler
  *
- * 各推論ステージの処理時間を個別に計測し、
- * 最適化すべきボトルネックを特定する。
+ * Measures processing time of each inference stage individually
+ * to identify bottlenecks that should be optimized.
  *
- * 計測方法: fe_process_frame内部のステージをラップし、
- * 外部から繰り返し呼んで統計を取る。
+ * Measurement method: Wrap stages inside fe_process_frame,
+ * call them repeatedly from external code and collect statistics.
  *
- * ビルド: gcc -O3 -march=native -ffast-math -DFE_USE_TINY_48K -DFE_MODEL_SIZE=0
- *         -I ... profile_stages.c <全ソース> -o profile_stages.exe -lm
+ * Build: gcc -O3 -march=native -ffast-math -DFE_USE_TINY_48K -DFE_MODEL_SIZE=0
+ *        -I ... profile_stages.c <all_sources> -o profile_stages.exe -lm
  */
 
 #include "fastenhancer.h"
@@ -100,18 +100,18 @@ int main(void) {
     float input[FE_HOP_SIZE], output[FE_HOP_SIZE];
     double frame_times[ITERS];
 
-    /* ウォームアップ */
+    /* Warm-up */
     for (int f = 0; f < WARMUP; f++) {
         for (int i = 0; i < FE_HOP_SIZE; i++)
             input[i] = 0.3f * sinf(2.0f * 3.14159265f * 440.0f * (float)(f * FE_HOP_SIZE + i) / 48000.0f);
         fe_process_frame(state, input, output);
     }
 
-    /* ステージ別計測: 直接のステージ分離は不可能なので、
-     * 全体の時間を計測しつつ、個別関数のマイクロベンチも行う */
+    /* Stage-by-stage measurement: Direct stage separation is not possible,
+     * so measure overall time while also performing microbenchmarks of individual functions */
     memset(stage_totals, 0, sizeof(stage_totals));
 
-    /* まず全体フレーム時間を計測 */
+    /* First measure overall frame time */
     for (int f = 0; f < ITERS; f++) {
         for (int i = 0; i < FE_HOP_SIZE; i++)
             input[i] = 0.3f * sinf(2.0f * 3.14159265f * 440.0f *
@@ -128,11 +128,11 @@ int main(void) {
     printf("  median: %.1f us (%.3f ms)\n", median_us, median_us / 1000.0);
     printf("  P99:    %.1f us (%.3f ms)\n", p99_us, p99_us / 1000.0);
 
-    /* ---- 個別ステージのマイクロベンチ ---- */
+    /* ---- Individual stage microbenchmarks ---- */
     printf("\n=== Stage Microbenchmarks (Tiny: C1=%d C2=%d F1=%d F2=%d) ===\n",
            FE_C1, FE_C2, FE_F1, FE_F2);
 
-    /* テスト用バッファ */
+    /* Test buffers */
     float* buf_512  = (float*)calloc(FE_FREQ_BINS + 1, sizeof(float));
     float* buf_512b = (float*)calloc(FE_FREQ_BINS + 1, sizeof(float));
     float* buf_1024 = (float*)calloc(FE_N_FFT, sizeof(float));
@@ -147,12 +147,12 @@ int main(void) {
     float* attn_sc  = (float*)calloc(FE_NUM_HEADS * FE_F2 * FE_F2, sizeof(float));
     float* attn_scr = (float*)calloc(4 * FE_F2 * FE_C2, sizeof(float));
 
-    /* enc_in にダミーデータ */
+    /* Fill enc_in with dummy data */
     for (int i = 0; i < 2 * FE_FREQ_BINS; i++) enc_in[i] = lcg_float(&seed);
     for (int i = 0; i < FE_C1 * FE_F1; i++) { buf_cf1[i] = lcg_float(&seed); buf_cf1b[i] = lcg_float(&seed); }
     for (int i = 0; i < FE_F2 * FE_C2; i++) rf_c[i] = lcg_float(&seed);
 
-    /* ダミー重み */
+    /* Dummy weights */
     float* dummy_w_enc_pre = (float*)calloc(FE_C1 * 2 * FE_ENC_K0, sizeof(float));
     float* dummy_bn_s = (float*)calloc(FE_C1, sizeof(float));
     float* dummy_bn_b = (float*)calloc(FE_C1, sizeof(float));
@@ -245,8 +245,8 @@ int main(void) {
     qsort(times, ITERS, sizeof(double), cmp_double);
     printf("  %-15s median=%6.1f us  P99=%6.1f us\n", "RF_PreNet", times[ITERS/2], times[ITERS*99/100]);
 
-    /* Stage 5: RF Block (GRU + MHSA) — ここはGRU重みが必要なのでfe_process_frame経由の差分で推定 */
-    /* GRU step micro-bench: ダミー重みでGRU 1ステップを計測 */
+    /* Stage 5: RF Block (GRU + MHSA) — This needs GRU weights so estimate from fe_process_frame difference */
+    /* GRU step micro-bench: Measure GRU 1 step with dummy weights */
     {
         float gru_wz[FE_C2 * FE_C2], gru_wr[FE_C2 * FE_C2], gru_wn[FE_C2 * FE_C2];
         float gru_uz[FE_C2 * FE_C2], gru_ur[FE_C2 * FE_C2], gru_un[FE_C2 * FE_C2];
@@ -355,7 +355,7 @@ int main(void) {
     qsort(times, ITERS, sizeof(double), cmp_double);
     printf("  %-15s median=%6.1f us  P99=%6.1f us\n", "iSTFT", times[ITERS/2], times[ITERS*99/100]);
 
-    /* クリーンアップ */
+    /* Clean up */
     fe_destroy(state);
     free(buf_512); free(buf_512b); free(buf_1024); free(buf_1024b);
     free(buf_cf1); free(buf_cf1b); free(buf_2cf1); free(enc_in);

@@ -1,16 +1,16 @@
 /*
- * pipeline.h — HPF/AGC 前処理パイプライン
+ * pipeline.h — HPF/AGC preprocessing pipeline
  *
- * HPF: 2次Butterworth高域通過フィルタ (80Hz @ 48kHz)
- * AGC: RMSベース自動ゲイン制御
+ * HPF: 2nd-order Butterworth high-pass filter (80Hz @ 48kHz)
+ * AGC: RMS-based automatic gain control
  *
- * 両方ともデフォルト無効。fe_set_hpf()/fe_set_agc()で有効化。
+ * Both are disabled by default. Enable with fe_set_hpf()/fe_set_agc().
  */
 
 #ifndef FE_PIPELINE_H
 #define FE_PIPELINE_H
 
-/* HPF状態: Direct Form II Transposed biquad */
+/* HPF state: Direct Form II Transposed biquad */
 typedef struct {
     float b0;
     float b1;
@@ -21,7 +21,7 @@ typedef struct {
     float z2;
 } FeHpfState;
 
-/* AGC状態 */
+/* AGC state */
 typedef struct {
     float env;
     float gain;

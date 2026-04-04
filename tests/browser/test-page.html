@@ -191,8 +191,21 @@
           appendLog('[FAIL] Some checks failed.');
         }
 
+        const destroyAckPromise = new Promise((resolve) => {
+          const timer = setTimeout(resolve, 2000);
+          const handler = (event) => {
+            if (event.data?.type === 'destroyed') {
+              clearTimeout(timer);
+              node.port.removeEventListener('message', handler);
+              resolve();
+            }
+          };
+          node.port.addEventListener('message', handler);
+        });
+
         node.port.postMessage({ type: 'destroy' });
         offlineNode.port.postMessage({ type: 'destroy' });
+        await destroyAckPromise;
         await ctx.close();
         appendLog('[11] Cleanup complete.');
 

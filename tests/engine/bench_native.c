@@ -1,5 +1,5 @@
 /*
- * bench_native.c — C native ベンチマーク
+ * bench_native.c — C native benchmark
  */
 
 #include "benchmark_stats.h"
@@ -34,7 +34,7 @@
 #define FE_BENCH_SR              48000.0
 #define FE_BENCH_PI              3.14159265358979323846
 
-/* Unity互換のためのスタブ（このファイルは自前main()の独立ベンチマーク） */
+/* Stub for Unity compatibility (this file is a standalone benchmark with its own main()) */
 void setUp(void) {}
 void tearDown(void) {}
 

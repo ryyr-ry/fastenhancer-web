@@ -1,9 +1,9 @@
 /*
- * fastenhancer.h — FastEnhancer 推論エンジン公開API
+ * fastenhancer.h — FastEnhancer inference engine public API
  *
- * 使い方:
+ * Usage:
  *   int n = fe_weight_count(FE_MODEL_TINY);
- *   float* weights = load_weights(...);  // n要素のfloat配列
+ *   float* weights = load_weights(...);  // float array of n elements
  *   FeState* state = fe_create(FE_MODEL_TINY, weights, n);
  *   fe_process_frame(state, input_512, output_512);
  *   fe_destroy(state);
@@ -25,29 +25,29 @@
 
 typedef struct FeState FeState;
 
-/* モデルサイズに対する必要重み数を返す。不正な場合は-1。 */
+/* Returns the required weight count for a model size. Returns -1 if invalid. */
 FE_PUBLIC_API int fe_weight_count(int model_size);
 
-/* エンジンを初期化。重みデータは内部にコピーされる。
- * weight_count が fe_weight_count(model_size) と一致しない場合NULLを返す。 */
+/* Initialize the engine. Weight data is copied internally.
+ * Returns NULL if weight_count does not match fe_weight_count(model_size). */
 FE_PUBLIC_API FeState* fe_create(int model_size, const float* weights, int weight_count);
 
-/* 1フレーム(hop_sizeサンプル)を処理。
- * input: [hop_size] 入力サンプル
- * output: [hop_size] ノイズ除去済み出力サンプル */
+/* Process one frame (hop_size samples).
+ * input: [hop_size] input samples
+ * output: [hop_size] denoised output samples */
 FE_PUBLIC_API void fe_process_frame(FeState* state, const float* input, float* output);
 
-/* 前処理の有効/無効を切り替える。0=無効, 非0=有効。 */
+/* Toggle preprocessing on/off. 0=disabled, non-zero=enabled. */
 FE_PUBLIC_API void fe_set_hpf(FeState* state, int enabled);
 FE_PUBLIC_API void fe_set_agc(FeState* state, int enabled);
 
-/* 内部状態をリセット(GRU隠れ状態、STFTオーバーラップ)。重みは保持。 */
+/* Reset internal state (GRU hidden state, STFT overlap). Weights are preserved. */
 FE_PUBLIC_API void fe_reset(FeState* state);
 
-/* リソース解放。state以降のアクセスは未定義。 */
+/* Release resources. Access to state after this call is undefined. */
 FE_PUBLIC_API void fe_destroy(FeState* state);
 
-/* 現在のモデルのhopサイズを返す。 */
+/* Returns the hop size of the current model. */
 FE_PUBLIC_API int fe_get_hop_size(const FeState* state);
 
 #endif /* FE_FASTENHANCER_H */

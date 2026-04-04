@@ -1,15 +1,15 @@
 /*
- * test_adversarial.c — 敵対的入力パターンテスト
+ * test_adversarial.c — Adversarial input pattern test
  *
- * test_edge_cases.c がカバーしない攻撃的シナリオを検証:
- *   - 処理中リセットの安全性
- *   - 無音→大音量→無音の急変
- *   - 非正規化浮動小数点 (subnormal)
- *   - FLT_MAX入力
- *   - 複数create/destroyサイクル（メモリリーク兆候）
- *   - 長時間無音後の復帰
- *   - 振幅ランプアップ（漸増入力）
- *   - 高エネルギーノイズ連続
+ * Verifies aggressive scenarios not covered by test_edge_cases.c:
+ *   - Safety of mid-processing reset
+ *   - Sudden changes from silence → loud → silence
+ *   - Subnormal floating-point numbers
+ *   - FLT_MAX input
+ *   - Multiple create/destroy cycles (memory leak symptoms)
+ *   - Recovery after long silence
+ *   - Amplitude ramp-up (gradually increasing input)
+ *   - Continuous high-energy noise
  */
 
 #include "unity.h"
@@ -51,7 +51,7 @@ static void assert_all_finite(const float* buf, int n) {
     }
 }
 
-/* --- 処理中リセットの安全性 --- */
+/* --- Mid-processing reset safety --- */
 
 void test_adv_reset_mid_stream(void) {
     float* in = fe_get_input_ptr(state);
@@ -73,19 +73,19 @@ void test_adv_reset_mid_stream(void) {
     assert_all_finite(out, HOP);
 }
 
-/* --- 無音→爆音→無音の急変 --- */
+/* --- Silence→burst→silence sudden changes --- */
 
 void test_adv_silence_burst_silence(void) {
     float* in = fe_get_input_ptr(state);
     float* out = fe_get_output_ptr(state);
 
-    /* 100フレーム無音 */
+    /* 100 frames of silence */
     memset(in, 0, HOP * sizeof(float));
     for (int f = 0; f < 100; f++) {
         fe_process(state, in, out);
     }
 
-    /* 5フレーム大音量 */
+    /* 5 frames of loud sound */
     for (int f = 0; f < 5; f++) {
         for (int i = 0; i < HOP; i++)
             in[i] = (i % 2 == 0) ? 0.99f : -0.99f;
@@ -94,7 +94,7 @@ void test_adv_silence_burst_silence(void) {
     }
     assert_all_finite(out, HOP);
 
-    /* 再び100フレーム無音 */
+    /* Again 100 frames of silence */
     memset(in, 0, HOP * sizeof(float));
     for (int f = 0; f < 100; f++) {
         int ret = fe_process(state, in, out);
@@ -103,7 +103,7 @@ void test_adv_silence_burst_silence(void) {
     assert_all_finite(out, HOP);
 }
 
-/* --- 非正規化浮動小数点 (subnormal) --- */
+/* --- Subnormal floating-point numbers --- */
 
 void test_adv_subnormal_input(void) {
     float* in = fe_get_input_ptr(state);
@@ -119,7 +119,7 @@ void test_adv_subnormal_input(void) {
     assert_all_finite(out, HOP);
 }
 
-/* --- FLT_MAX入力 --- */
+/* --- FLT_MAX input --- */
 
 void test_adv_flt_max_input(void) {
     float* in = fe_get_input_ptr(state);
@@ -130,17 +130,17 @@ void test_adv_flt_max_input(void) {
 
     int ret = fe_process(state, in, out);
     TEST_ASSERT_EQUAL_INT(0, ret);
-    /* FLT_MAXは入力サニタイズでクランプされるため出力は有限値 */
+    /* FLT_MAX is clamped by input sanitization so output is finite */
     assert_all_finite(out, HOP);
 }
 
-/* --- 複数create/destroyサイクル --- */
+/* --- Multiple create/destroy cycles --- */
 
 void test_adv_create_destroy_cycles(void) {
     float input[HOP];
     float output[HOP];
 
-    /* setUp()で作られたstateを先に解放 */
+    /* Free the state created in setUp() first */
     fe_destroy(state);
     state = NULL;
 
@@ -155,22 +155,22 @@ void test_adv_create_destroy_cycles(void) {
         fe_destroy(s);
     }
 
-    /* tearDown()でstate=NULLなのでdouble freeしない */
+    /* tearDown() has state=NULL so no double free */
 }
 
-/* --- 長時間無音後の復帰 --- */
+/* --- Recovery after long silence --- */
 
 void test_adv_long_silence_then_signal(void) {
     float* in = fe_get_input_ptr(state);
     float* out = fe_get_output_ptr(state);
 
-    /* 1000フレーム無音（GRU隠れ状態が安定するか） */
+    /* 1000 frames of silence (check if GRU hidden state stabilizes) */
     memset(in, 0, HOP * sizeof(float));
     for (int f = 0; f < 1000; f++) {
         fe_process(state, in, out);
     }
 
-    /* 信号復帰 */
+    /* Signal recovery */
     for (int f = 0; f < 20; f++) {
         for (int i = 0; i < HOP; i++)
             in[i] = 0.2f * sinf(2.0f * 3.14159f * 440.0f * (float)(f * HOP + i) / 48000.0f);
@@ -180,7 +180,7 @@ void test_adv_long_silence_then_signal(void) {
     assert_all_finite(out, HOP);
 }
 
-/* --- 振幅ランプアップ --- */
+/* --- Amplitude ramp-up --- */
 
 void test_adv_amplitude_ramp(void) {
     float* in = fe_get_input_ptr(state);
@@ -196,7 +196,7 @@ void test_adv_amplitude_ramp(void) {
     assert_all_finite(out, HOP);
 }
 
-/* --- 高エネルギーノイズ連続 --- */
+/* --- Continuous high-energy noise --- */
 
 void test_adv_sustained_noise(void) {
     float* in = fe_get_input_ptr(state);
@@ -212,7 +212,7 @@ void test_adv_sustained_noise(void) {
     assert_all_finite(out, HOP);
 }
 
-/* --- 交互NaN/正常入力 --- */
+/* --- Alternating NaN/normal input --- */
 
 void test_adv_alternating_nan_normal(void) {
     float* in = fe_get_input_ptr(state);
@@ -231,7 +231,7 @@ void test_adv_alternating_nan_normal(void) {
     assert_all_finite(out, HOP);
 }
 
-/* --- 連続リセット --- */
+/* --- Rapid resets --- */
 
 void test_adv_rapid_resets(void) {
     float* in = fe_get_input_ptr(state);

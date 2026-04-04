@@ -1,16 +1,16 @@
 /*
- * conv.c — 1次元畳み込みの実装
+ * conv.c — Implementation of 1D convolution
  *
  * Conv1d, StridedConv1d (Encoder), ConvTranspose1d (Decoder)
- * BatchNorm融合: export_weights.pyでrunning_mean/varを
- *   scale/biasに事前変換済みのデータを受け取る。
+ * BatchNorm fusion: Receives data pre-converted from running_mean/var
+ *   to scale/bias by export_weights.py.
  *
- * メモリレイアウト (channel-first):
+ * Memory layout (channel-first):
  *   input:  [in_channels][in_len]
  *   weight: [out_channels][in_channels][kernel_size]
  *   output: [out_channels][out_len]
  *
- * 内部ループにSIMD(f32x4)を使用。
+ * Uses SIMD (f32x4) for the inner loop.
  */
 
 #include "conv.h"
@@ -86,9 +86,9 @@ int fe_conv_transpose1d(const float* input, const float* weight, const float* bi
     return out_len;
 }
 
-/* k=1, stride=1, padding=0 特殊化: 行列ベクトル積 per 出力位置
- * DecBlock の 1×1 conv (2C1→C1) で呼ばれる。最大のボトルネック。
- * kernel loop / bounds check / padding 全て不要。 */
+/* k=1, stride=1, padding=0 specialization: matrix-vector product per output position
+ * Called by DecBlock's 1x1 conv (2C1->C1). The biggest bottleneck.
+ * Kernel loop / bounds check / padding all unnecessary. */
 static void conv1d_bn_k1(const float* input, const float* weight,
                           float scale, float bias,
                           float* output, int len, int in_channels,
@@ -115,18 +115,18 @@ static void conv1d_bn_k1(const float* input, const float* weight,
     }
 }
 
-/* stride=1 汎用 SIMD パス (k>=2, padding あり)
+/* stride=1 generic SIMD path (k>=2, with padding)
  *
- * SIMD 4要素ロードの境界安全性証明:
+ * Proof of boundary safety for SIMD 4-element loads:
  *   safe_start = padding
  *   safe_end   = out_len - (kernel_size - 1 - padding)
  *   safe4      = safe_start + ((safe_end - safe_start) & ~3)
- *   SIMD区間 p ∈ [safe_start, safe4) で f32x4_load(in_ic + p + k - padding)
- *   最大アクセス位置 = (safe4-1) + (kernel_size-1) - padding + 3
- *                    ≤ (safe_end-1) + (kernel_size-1) - padding + 3
- *                    = out_len - 1 + 3 = in_len + 2 (padding=0時)
- *   padding>0時は in_len - 1 以内に収まる。
- *   WASM線形メモリは連続領域のため、+2の超過読みは安全。
+ *   For SIMD range p in [safe_start, safe4), f32x4_load(in_ic + p + k - padding)
+ *   Max access position = (safe4-1) + (kernel_size-1) - padding + 3
+ *                       <= (safe_end-1) + (kernel_size-1) - padding + 3
+ *                        = out_len - 1 + 3 = in_len + 2 (when padding=0)
+ *   When padding>0, it stays within in_len - 1.
+ *   WASM linear memory is contiguous, so +2 over-read is safe.
  */
 static void conv1d_bn_generic_s1(const float* input, const float* w_oc,
                                   float scale, float bias,
@@ -178,7 +178,7 @@ static void conv1d_bn_generic_s1(const float* input, const float* w_oc,
     }
 }
 
-/* stride>1 SIMD パス: 出力チャネル内で SIMD (EncPreNet k=8, s=4 等) */
+/* stride>1 SIMD path: SIMD within output channel (EncPreNet k=8, s=4, etc.) */
 static void conv1d_bn_strided(const float* input, const float* w_oc,
                                float scale, float bias,
                                float* output, int in_len, int in_channels,

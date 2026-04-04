@@ -1,8 +1,8 @@
 /*
- * profile_small.c — Small モデル P99 スパイク原因調査
+ * profile_small.c — Small model P99 spike root cause analysis
  *
- * 各フレームの処理時間を記録し、遅いフレームの特定と
- * 処理時間の分布を詳細に分析する。
+ * Records processing time for each frame to identify slow frames
+ * and analyze processing time distribution in detail.
  */
 
 #include "fastenhancer.h"
@@ -53,7 +53,7 @@ int main(void) {
     unsigned int seed = 42;
     for (int i = 0; i < wc; i++) w[i] = lcg_float(&seed);
 
-    /* BNスケール=1にセット(簡易) */
+    /* Set BN scale=1 (simplified) */
     for (int i = 0; i < wc; i++) {
         if (i % 100 < 3) w[i] = (i % 3 == 0) ? 1.0f : 0.0f;
     }
@@ -69,14 +69,14 @@ int main(void) {
     float input[512], output[512];
     double* timings = (double*)malloc(MEASURE * sizeof(double));
 
-    /* ウォームアップ */
+    /* Warm-up */
     for (int f = 0; f < WARMUP; f++) {
         for (int i = 0; i < 512; i++)
             input[i] = 0.3f * sinf(2.0f * PI_F * 440.0f * (float)(f * 512 + i) / 48000.0f);
         fe_process_frame(state, input, output);
     }
 
-    /* 計測: 各フレームの処理時間を記録 */
+    /* Measurement: Record processing time for each frame */
     for (int f = 0; f < MEASURE; f++) {
         for (int i = 0; i < 512; i++)
             input[i] = 0.3f * sinf(2.0f * PI_F * 440.0f * (float)((WARMUP + f) * 512 + i) / 48000.0f);
@@ -89,9 +89,9 @@ int main(void) {
 
     fe_destroy(state);
 
-    /* ===== 分析 ===== */
+    /* ===== Analysis ===== */
 
-    /* ソート前: 遅いフレームのインデックスを特定 */
+    /* Before sorting: Identify indices of slow frames */
     printf("=== Slow Frames (>5ms) ===\n");
     int slow_count = 0;
     for (int f = 0; f < MEASURE; f++) {
@@ -103,7 +103,7 @@ int main(void) {
     }
     printf("total slow (>5ms): %d / %d\n\n", slow_count, MEASURE);
 
-    /* 連続遅延パターン: 遅いフレームが連続するか */
+    /* Consecutive delay pattern: Check if slow frames occur consecutively */
     printf("=== Consecutive Slow Frames ===\n");
     int max_consecutive = 0, cur_consecutive = 0;
     for (int f = 0; f < MEASURE; f++) {
@@ -116,7 +116,7 @@ int main(void) {
     }
     printf("max_consecutive_slow: %d\n\n", max_consecutive);
 
-    /* ヒストグラム */
+    /* Histogram */
     printf("=== Histogram ===\n");
     int hist[20] = {0};
     for (int f = 0; f < MEASURE; f++) {
@@ -132,7 +132,7 @@ int main(void) {
         }
     }
 
-    /* パーセンタイル分析 */
+    /* Percentile analysis */
     qsort(timings, MEASURE, sizeof(double), cmp_double);
 
     printf("\n=== Percentiles ===\n");
@@ -150,7 +150,7 @@ int main(void) {
     for (int f = 0; f < MEASURE; f++) sum += timings[f];
     printf("  avg:    %.3f ms\n", sum / MEASURE);
 
-    /* 予算超過率 */
+    /* Budget overrun rate */
     int over_budget = 0;
     for (int f = 0; f < MEASURE; f++) {
         if (timings[f] > 10.667) over_budget++;

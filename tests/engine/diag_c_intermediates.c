@@ -1,8 +1,8 @@
 /*
- * diag_c_intermediates.c — Cエンジンの各パイプラインステージ中間値を出力
+ * diag_c_intermediates.c — Output intermediate values for each pipeline stage of the C engine
  *
- * PyTorch中間値と比較して、最初に乖離が発生するステージを特定する。
- * Frame 1 を使用（frame 0 は STFT padding 差異があるため）。
+ * Compare with PyTorch intermediate values to identify the first stage where divergence occurs.
+ * Using Frame 1 (frame 0 has STFT padding differences).
  */
 
 #include "fastenhancer.h"
@@ -68,54 +68,54 @@ static float* load_bin(const char* path, int expected_floats) {
 }
 
 int main(void) {
-    printf("=== Cエンジン中間値診断 ===\n\n");
+    printf("=== C Engine Intermediate Diagnostics ===\n\n");
 
     int wcount;
     float* weights = load_weights("weights/fe_tiny_48k.bin", &wcount);
-    if (!weights) { fprintf(stderr, "重み読み込み失敗\n"); return 1; }
-    printf("重み読み込み: %d floats\n", wcount);
+    if (!weights) { fprintf(stderr, "Failed to load weights\n"); return 1; }
+    printf("Weights loaded: %d floats\n", wcount);
 
     FeState* state = fe_create(FE_MODEL_TINY, weights, wcount);
-    if (!state) { fprintf(stderr, "fe_create失敗\n"); free(weights); return 1; }
-    printf("fe_create成功\n\n");
+    if (!state) { fprintf(stderr, "fe_create failed\n"); free(weights); return 1; }
+    printf("fe_create succeeded\n\n");
 
     int n_samples = 40 * FE_HOP_SIZE;
     float* input = load_bin("tests/golden/golden_input.bin", n_samples);
     if (!input) { fe_destroy(state); free(weights); return 1; }
 
-    /* Frame 0 を処理（STFTバッファを温める） */
+    /* Process Frame 0 (warm up STFT buffer) */
     float output_frame[FE_HOP_SIZE];
     fe_process_frame(state, input, output_frame);
-    printf("Frame 0 出力:\n");
+    printf("Frame 0 output:\n");
     print_stats("output", output_frame, FE_HOP_SIZE);
 
-    /* Frame 1 を処理して中間値を出力 */
+    /* Process Frame 1 and output intermediate values */
     float* frame1_input = input + FE_HOP_SIZE;
 
     /* Step 1: STFT */
     printf("\n=== Frame 1: STFT ===\n");
     {
-        /* 直接STFTを呼んで中間値を確認 */
-        /* 注: stateの内部STFTバッファはframe 0処理済み */
+        /* Call STFT directly to check intermediate values */
+        /* Note: state's internal STFT buffer has already processed frame 0 */
         float spec_re[FE_SPEC_BINS], spec_im[FE_SPEC_BINS];
-        /* 一旦STFTをリセットしてframe1を単独で処理はできない（ストリーミング） */
-        /* 代わりに、frame 0, frame 1 を順番に処理 */
+        /* Cannot reset STFT and process frame 1 independently (streaming) */
+        /* Instead, process frame 0 and frame 1 sequentially */
     }
 
-    /* Frame 1 を fe_process_frame で処理 */
+    /* Process Frame 1 via fe_process_frame */
     fe_process_frame(state, frame1_input, output_frame);
-    printf("Frame 1 最終出力:\n");
+    printf("Frame 1 final output:\n");
     print_stats("output", output_frame, FE_HOP_SIZE);
 
-    /* 追加: Frame 2-9 */
+    /* Additional: Frame 2-9 */
     for (int f = 2; f < 10; f++) {
         fe_process_frame(state, input + f * FE_HOP_SIZE, output_frame);
         printf("Frame %d: rms=%.6e, first=%.6e\n", f,
                sqrtf(output_frame[0]*output_frame[0]), output_frame[0]);
     }
 
-    printf("\n=== 重み検査 ===\n");
-    /* Encoder PreNet の重みの先頭を出力 */
+    printf("\n=== Weight Inspection ===\n");
+    /* Output first elements of Encoder PreNet weights */
     printf("enc_pre_conv_w (first 10):\n  ");
     for (int i = 0; i < 10; i++) printf("%.6e ", weights[i]);
     printf("\n");

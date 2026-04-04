@@ -1,5 +1,5 @@
 /*
- * pipeline.c — HPF/AGC 前処理パイプライン
+ * pipeline.c — HPF/AGC preprocessing pipeline
  */
 
 #include "pipeline.h"

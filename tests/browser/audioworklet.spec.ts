@@ -41,7 +41,7 @@ test('AudioWorklet destroy safety', async ({ page }) => {
   await page.waitForFunction(
     () => {
       const el = document.getElementById('log');
-      return el && (el.textContent!.includes('[PASS]') || el.textContent!.includes('[FAIL]'));
+      return el && el.textContent!.includes('Cleanup complete');
     },
     { timeout: 30000 }
   );

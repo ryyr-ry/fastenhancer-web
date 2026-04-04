@@ -1,5 +1,5 @@
 /*
- * benchmark_stats.c — ベンチマーク統計ヘルパー
+ * benchmark_stats.c — Benchmark statistics helper
  */
 
 #include "benchmark_stats.h"

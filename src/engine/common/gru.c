@@ -1,16 +1,16 @@
 /*
- * gru.c — GRU (Gated Recurrent Unit) の実装
+ * gru.c — Implementation of GRU (Gated Recurrent Unit)
  *
- * PyTorch互換のバイアス分離方式:
- *   z = sigmoid(W_z·x + U_z·h + b_z)
- *   r = sigmoid(W_r·x + U_r·h + b_r)
- *   n = tanh(W_n·x + b_in_n + r*(U_n·h + b_hn_n))
+ * PyTorch-compatible separated bias scheme:
+ *   z = sigmoid(W_z*x + U_z*h + b_z)
+ *   r = sigmoid(W_r*x + U_r*h + b_r)
+ *   n = tanh(W_n*x + b_in_n + r*(U_n*h + b_hn_n))
  *   h = (1-z)*n + z*h_prev
  *
- * b_in_n は rゲートの外側、b_hn_n は rゲートの内側。
- * PyTorch GRU (mode='linear_after_reset') と等価。
+ * b_in_n is outside the r gate, b_hn_n is inside the r gate.
+ * Equivalent to PyTorch GRU (mode='linear_after_reset').
  *
- * matvec演算にSIMD(f32x4)を使用。
+ * Uses SIMD (f32x4) for matvec operations.
  */
 
 #include "gru.h"
@@ -67,7 +67,7 @@ void fe_gru_step(const FeGruWeights* w, const float* input, float* hidden) {
         for (int i = hs4; i < hs; i++) n[i] = tanhf(n[i] + Uh[i]);
     }
 
-    /* h = (1-z)*n + z*h_prev — SIMD化 */
+    /* h = (1-z)*n + z*h_prev — SIMD vectorized */
     {
         const int hs4 = hs & ~3;
         const f32x4 ones = f32x4_splat(1.0f);

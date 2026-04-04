@@ -1,12 +1,12 @@
 /*
- * fastenhancer.c — FastEnhancer 推論パイプライン実装
+ * fastenhancer.c — FastEnhancer inference pipeline implementation
  *
- * テンソルフロー (48kHz Tiny):
- *   入力 [512] → STFT → [513] → Nyquist除去 → [512] complex
- *   → パワー圧縮 → [2,512] → Encoder → [C1,F1]
- *   → RNNFormer PreNet → [F2,C2] → RNNFormer Blocks
- *   → RNNFormer PostNet → [C1,F1] → Decoder → [2,512] mask
- *   → 複素マスク適用 → パワー復号 → Nyquist復元 → iSTFT → [512]
+ * Tensor flow (48kHz Tiny):
+ *   Input [512] -> STFT -> [513] -> Nyquist removal -> [512] complex
+ *   -> Power compression -> [2,512] -> Encoder -> [C1,F1]
+ *   -> RNNFormer PreNet -> [F2,C2] -> RNNFormer Blocks
+ *   -> RNNFormer PostNet -> [C1,F1] -> Decoder -> [2,512] mask
+ *   -> Complex mask application -> Power decompression -> Nyquist restoration -> iSTFT -> [512]
  */
 
 #include "fastenhancer.h"
@@ -30,7 +30,7 @@
 #include <string.h>
 #include <math.h>
 
-/* ---- 重みポインタ構造体 (フラット重みバッファへのビュー) ---- */
+/* ---- Weight pointer structures (views into the flat weight buffer) ---- */
 
 typedef struct {
     const float* conv_w;
@@ -88,7 +88,7 @@ typedef struct {
     const float*     dec_post_deconv_b;
 } FeWeights;
 
-/* ---- FeState 完全定義 ---- */
+/* ---- FeState full definition ---- */
 
 struct FeState {
     FeStftState stft;
@@ -97,52 +97,52 @@ struct FeState {
     int hpf_enabled;
     int agc_enabled;
 
-    /* WASM/FFI 入力バッファ兼 前処理入力 */
+    /* WASM/FFI input buffer / preprocessing input */
     float frame_input[FE_HOP_SIZE];
     float frame_output[FE_HOP_SIZE];
 
-    /* スペクトルバッファ [SPEC_BINS=513] */
+    /* Spectrum buffers [SPEC_BINS=513] */
     float spec_in_re[FE_SPEC_BINS];
     float spec_in_im[FE_SPEC_BINS];
     float spec_out_re[FE_SPEC_BINS];
     float spec_out_im[FE_SPEC_BINS];
 
-    /* Encoder入力 [2, FREQ_BINS] = [2, 512] */
+    /* Encoder input [2, FREQ_BINS] = [2, 512] */
     float enc_input[2 * FE_FREQ_BINS];
 
-    /* Encoder/Decoder ピンポンバッファ [C1, F1] */
+    /* Encoder/Decoder ping-pong buffers [C1, F1] */
     float buf_a[FE_C1 * FE_F1];
     float buf_b[FE_C1 * FE_F1];
 
-    /* Decoder concat用 [2*C1, F1] */
+    /* Decoder concat buffer [2*C1, F1] */
     float buf_cat[2 * FE_C1 * FE_F1];
 
     /* Encoder skip connections [ENC_BLOCKS+1][C1*F1] */
     float enc_skip[FE_ENC_BLOCKS + 1][FE_C1 * FE_F1];
 
-    /* RNNFormer 中間バッファ */
+    /* RNNFormer intermediate buffers */
     float rf_a[FE_C1 * FE_F2];
     float rf_b[FE_C2 * FE_F2];
     float rf_c[FE_F2 * FE_C2];
 
-    /* GRU 隠れ状態 (フレーム間保持) */
+    /* GRU hidden state (preserved across frames) */
     float gru_h[FE_RF_BLOCKS][FE_F2 * FE_C2];
 
-    /* Attention ワークスペース */
+    /* Attention workspace */
     float attn_scratch[4 * FE_F2 * FE_C2];
     float attn_scores[FE_NUM_HEADS * FE_F2 * FE_F2];
 
-    /* 重みの内部コピーとポインタ */
+    /* Internal copy of weights and pointers */
     float*    weight_data;
     FeWeights w;
 
     int model_size;
 };
 
-/* ---- ヘルパー関数 ---- */
+/* ---- Helper functions ---- */
 
-/* 最終次元にLinear適用: [batch, in_dim] → [batch, out_dim]
- * SIMD行列ベクトル積を使用 */
+/* Apply Linear to the last dimension: [batch, in_dim] -> [batch, out_dim]
+ * Uses SIMD matrix-vector product */
 static void linear_last_dim(const float* W, const float* input, float* output,
                             int batch, int out_dim, int in_dim) {
     for (int b = 0; b < batch; b++) {
@@ -152,7 +152,7 @@ static void linear_last_dim(const float* W, const float* input, float* output,
     }
 }
 
-/* 2D転置: [rows, cols] → [cols, rows] */
+/* 2D transpose: [rows, cols] -> [cols, rows] */
 static void transpose_2d(const float* in, float* out, int rows, int cols) {
     for (int r = 0; r < rows; r++) {
         for (int c = 0; c < cols; c++) {
@@ -161,7 +161,7 @@ static void transpose_2d(const float* in, float* out, int rows, int cols) {
     }
 }
 
-/* チャネル方向concat: [C, L] + [C, L] → [2C, L] */
+/* Channel-wise concat: [C, L] + [C, L] -> [2C, L] */
 static void concat_channels(const float* a, const float* b, float* out,
                             int channels, int length) {
     int size = channels * length;
@@ -169,7 +169,7 @@ static void concat_channels(const float* a, const float* b, float* out,
     memcpy(out + size, b, sizeof(float) * size);
 }
 
-/* ---- 重みポインタ初期化 ---- */
+/* ---- Weight pointer initialization ---- */
 
 static int setup_weights(FeState* state) {
     const float* p = state->weight_data;
@@ -197,7 +197,7 @@ static int setup_weights(FeState* state) {
     for (int b = 0; b < FE_RF_BLOCKS; b++) {
         FeRfBlockWeights* rb = &w->rf_blocks[b];
 
-        /* GRU (分離重み) */
+        /* GRU (separated weights) */
         rb->gru.W_z    = p; p += FE_C2 * FE_C2;
         rb->gru.U_z    = p; p += FE_C2 * FE_C2;
         rb->gru.b_z    = p; p += FE_C2;
@@ -211,11 +211,11 @@ static int setup_weights(FeState* state) {
         rb->gru.input_size  = FE_C2;
         rb->gru.hidden_size = FE_C2;
 
-        /* GRU後のLinear */
+        /* Linear after GRU */
         rb->gru_fc_w = p; p += FE_C2 * FE_C2;
         rb->gru_fc_b = p; p += FE_C2;
 
-        /* 位置埋め込み (block 0のみ) */
+        /* Positional embedding (block 0 only) */
         if (b == 0) {
             rb->pe = p; p += FE_F2 * FE_C2;
         } else {
@@ -260,7 +260,7 @@ static int setup_weights(FeState* state) {
     w->dec_post_deconv_w    = p; p += FE_C1 * 2 * FE_ENC_K0;
     w->dec_post_deconv_b    = p; p += 2;
 
-    /* E7: 重みポインタ歩行が正確に FE_TOTAL_WEIGHTS で終端することを検証 */
+    /* E7: Verify that weight pointer walk ends exactly at FE_TOTAL_WEIGHTS */
     {
         int consumed = (int)(p - state->weight_data);
         if (consumed != FE_TOTAL_WEIGHTS) {
@@ -271,7 +271,7 @@ static int setup_weights(FeState* state) {
     return 0;
 }
 
-/* ---- パイプラインステップ ---- */
+/* ---- Pipeline steps ---- */
 
 static const float* pipeline_preprocess(FeState* s, const float* input) {
     if (!s->hpf_enabled && !s->agc_enabled) {
@@ -290,7 +290,7 @@ static const float* pipeline_preprocess(FeState* s, const float* input) {
     return s->frame_input;
 }
 
-/* Step 1-4: STFT → Nyquist除去 → パワー圧縮 → チャネル分離 */
+/* Step 1-4: STFT -> Nyquist removal -> power compression -> channel separation */
 static void pipeline_stft_compress(FeState* s, const float* input) {
     fe_stft_forward(&s->stft, input, s->spec_in_re, s->spec_in_im);
 
@@ -327,7 +327,7 @@ static void pipeline_encoder(FeState* s) {
         float *tmp = src; src = dst; dst = tmp;
     }
 
-    /* Encoder出力がbuf_aにない場合コピー */
+    /* Copy encoder output to buf_a if not already there */
     if (src != s->buf_a) {
         memcpy(s->buf_a, src, sizeof(float) * cf1);
     }
@@ -354,7 +354,7 @@ static void pipeline_rf_prenet(FeState* s) {
 static void pipeline_rf_block(FeState* s, int block) {
     const FeRfBlockWeights* rb = &s->w.rf_blocks[block];
 
-    /* GRU: 各周波数binを独立処理 + Linear + 残差接続 */
+    /* GRU: process each frequency bin independently + Linear + residual connection */
     for (int f = 0; f < FE_F2; f++) {
         float* x_f = s->rf_c + f * FE_C2;
         float* h_f = s->gru_h[block] + f * FE_C2;
@@ -367,12 +367,12 @@ static void pipeline_rf_block(FeState* s, int block) {
         fe_vec_add(x_f, fc_out, FE_C2);
     }
 
-    /* 位置埋め込み (block 0のみ) */
+    /* Positional embedding (block 0 only) */
     if (rb->pe) {
         fe_vec_add(s->rf_c, rb->pe, FE_F2 * FE_C2);
     }
 
-    /* MHSA + 残差接続 */
+    /* MHSA + residual connection */
     fe_mhsa(&rb->mhsa, s->rf_c, s->rf_a,
             s->attn_scores, s->attn_scratch, FE_F2);
 
@@ -402,7 +402,7 @@ static void pipeline_decoder(FeState* s) {
     const FeWeights* w = &s->w;
     const int cf1 = FE_C1 * FE_F1;
 
-    /* Decoder Blocks (逆順skip: enc_skip[N]..enc_skip[1]) */
+    /* Decoder Blocks (reverse skip: enc_skip[N]..enc_skip[1]) */
     for (int b = 0; b < FE_ENC_BLOCKS; b++) {
         int skip_idx = FE_ENC_BLOCKS - b;
         const FeDecBlockWeights* db = &w->dec_blocks[b];
@@ -441,9 +441,9 @@ static void pipeline_decoder(FeState* s) {
                         FE_ENC_K0, FE_STRIDE, FE_ENC_PRE_PAD);
 }
 
-/* Step 12-16: マスク適用 → パワー復号 → Nyquist復元 → iSTFT */
+/* Step 12-16: Mask application -> power decompression -> Nyquist restoration -> iSTFT */
 static void pipeline_mask_istft(FeState* s, float* output) {
-    /* 複素マスク適用: out = compressed_input × mask */
+    /* Complex mask application: out = compressed_input x mask */
     const float* mask_re = s->buf_a;
     const float* mask_im = s->buf_a + FE_FREQ_BINS;
 
@@ -465,20 +465,20 @@ static void pipeline_mask_istft(FeState* s, float* output) {
         s->spec_out_im[i] = in_re * m_im + in_im * m_re;
     }
 
-    /* パワー復号 */
+    /* Power decompression */
     fe_power_decompress_complex(s->spec_out_re, s->spec_out_im,
                                 s->spec_out_re, s->spec_out_im,
                                 FE_FREQ_BINS, FE_COMPRESS_EXP);
 
-    /* Nyquist復元 (0+0j) */
+    /* Nyquist restoration (0+0j) */
     s->spec_out_re[FE_FREQ_BINS] = 0.0f;
     s->spec_out_im[FE_FREQ_BINS] = 0.0f;
 
-    /* iSTFT → 出力波形 */
+    /* iSTFT -> output waveform */
     fe_stft_inverse(&s->stft, s->spec_out_re, s->spec_out_im, output);
 }
 
-/* ---- 公開API ---- */
+/* ---- Public API ---- */
 
 int fe_weight_count(int model_size) {
 #if defined(FE_USE_BASE_48K)
@@ -513,7 +513,7 @@ FeState* fe_create(int model_size, const float* weights, int weight_count) {
 
     s->model_size = model_size;
 
-    /* 重みデータをコピー */
+    /* Copy weight data */
     s->weight_data = (float*)malloc(sizeof(float) * weight_count);
     if (!s->weight_data) {
         free(s);
@@ -521,14 +521,14 @@ FeState* fe_create(int model_size, const float* weights, int weight_count) {
     }
     memcpy(s->weight_data, weights, sizeof(float) * weight_count);
 
-    /* 重みポインタを設定 */
+    /* Set up weight pointers */
     if (setup_weights(s) != 0) {
         free(s->weight_data);
         free(s);
         return NULL;
     }
 
-    /* STFT初期化 */
+    /* Initialize STFT */
     if (fe_stft_init(&s->stft, FE_N_FFT, FE_HOP_SIZE) != 0) {
         free(s->weight_data);
         free(s);

@@ -1,12 +1,12 @@
 /*
- * test_stft.c — Phase 2-C: STFT/iSTFTテスト (TDD Red)
+ * test_stft.c — Phase 2-C: STFT/iSTFT Tests (TDD Red)
  *
- * 検証対象:
- *   - Hann窓の正しさ (対称性、端点、エネルギー)
- *   - STFT → iSTFT ラウンドトリップ (COLA条件)
- *   - ストリーミング一貫性 (フレーム間のoverlap-add)
+ * Verification targets:
+ *   - Hann window correctness (symmetry, endpoints, energy)
+ *   - STFT → iSTFT round-trip (COLA condition)
+ *   - Streaming continuity (overlap-add across frames)
  *
- * コンパイル:
+ * Compile:
  *   gcc -I tests/engine/unity -I src/engine/common \
  *       tests/engine/unity/unity.c tests/engine/test_stft.c \
  *       src/engine/common/stft.c src/engine/common/fft.c -o test_stft -lm
@@ -34,13 +34,13 @@ void setUp(void) {
 
 void tearDown(void) {}
 
-/* --- Hann窓テスト --- */
+/* --- Hann Window Tests --- */
 
 void test_hann_window_endpoints(void) {
     const float* window = fe_stft_get_window(&stft_state);
     TEST_ASSERT_NOT_NULL(window);
     TEST_ASSERT_FLOAT_WITHIN(1e-7f, 0.0f, window[0]);
-    /* 周期的Hann窓: w[N-1] ≈ 0だが厳密には0でない (∝ 1/N²) */
+    /* Periodic Hann window: w[N-1] ≈ 0 but not exactly zero (∝ 1/N²) */
     TEST_ASSERT_FLOAT_WITHIN(1e-4f, 0.0f, window[N_FFT - 1]);
 }
 
@@ -52,7 +52,7 @@ void test_hann_window_peak(void) {
 
 void test_hann_window_symmetry(void) {
     const float* window = fe_stft_get_window(&stft_state);
-    /* 周期的Hann窓は厳密に対称ではないが、ほぼ対称 (誤差 ∝ 1/N) */
+    /* Periodic Hann window is not strictly symmetric, but approximately so (error ∝ 1/N) */
     for (int i = 0; i < N_FFT / 2; i++) {
         TEST_ASSERT_FLOAT_WITHIN(0.01f, window[i], window[N_FFT - 1 - i]);
     }
@@ -69,14 +69,14 @@ void test_hann_window_nonnegative(void) {
 void test_hann_window_cola_condition(void) {
     const float* window = fe_stft_get_window(&stft_state);
 
-    /* COLA条件: Hann窓, hop=n_fft/2 の場合、隣接窓の和が定数になる */
+    /* COLA condition: for Hann window with hop=n_fft/2, the sum of adjacent windows is constant */
     for (int i = 0; i < HOP_SIZE; i++) {
         float sum = window[i] + window[i + HOP_SIZE];
         TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.0f, sum);
     }
 }
 
-/* --- STFT基本テスト --- */
+/* --- STFT Basic Tests --- */
 
 void test_stft_impulse(void) {
     float input[HOP_SIZE];
@@ -108,16 +108,16 @@ void test_stft_dc_produces_energy_at_bin0(void) {
     float spec_imag[FREQ_BINS];
 
     fe_stft_reset(&stft_state);
-    /* 最初のフレームでバッファを埋める */
+    /* Fill the buffer with the first frame */
     fe_stft_forward(&stft_state, input, spec_real, spec_imag);
-    /* 2フレーム目で安定した出力 */
+    /* Stable output on the second frame */
     fe_stft_forward(&stft_state, input, spec_real, spec_imag);
 
     float mag_dc = sqrtf(spec_real[0] * spec_real[0] + spec_imag[0] * spec_imag[0]);
     TEST_ASSERT_TRUE(mag_dc > 0.1f);
 }
 
-/* --- ラウンドトリップ (STFT → iSTFT) --- */
+/* --- Round-trip (STFT → iSTFT) --- */
 
 void test_stft_roundtrip_sine(void) {
     float input[HOP_SIZE];
@@ -128,7 +128,7 @@ void test_stft_roundtrip_sine(void) {
 
     fe_stft_reset(&stft_state);
 
-    /* ウォームアップ: 数フレーム処理して安定させる */
+    /* Warm-up: process several frames to reach steady state */
     int warmup_frames = 4;
     for (int f = 0; f < warmup_frames; f++) {
         for (int i = 0; i < HOP_SIZE; i++) {
@@ -139,7 +139,7 @@ void test_stft_roundtrip_sine(void) {
         fe_stft_inverse(&stft_state, spec_real, spec_imag, output);
     }
 
-    /* 次のフレームの入力を保存し、さらに1フレーム進める */
+    /* Save the next frame's input, then advance one more frame */
     for (int i = 0; i < HOP_SIZE; i++) {
         prev_input[i] = sinf(2.0f * (float)M_PI * 1000.0f *
                         (warmup_frames * HOP_SIZE + i) / 48000.0f);
@@ -154,7 +154,7 @@ void test_stft_roundtrip_sine(void) {
     fe_stft_forward(&stft_state, input, spec_real, spec_imag);
     fe_stft_inverse(&stft_state, spec_real, spec_imag, output);
 
-    /* overlap-addは1フレーム遅延: outputはprev_inputに対応 */
+    /* overlap-add has 1-frame latency: output corresponds to prev_input */
     float max_error = 0.0f;
     for (int i = 0; i < HOP_SIZE; i++) {
         float err = fabsf(output[i] - prev_input[i]);
@@ -170,7 +170,7 @@ void test_stft_roundtrip_white_noise(void) {
 
     fe_stft_reset(&stft_state);
 
-    /* 簡易PRNG */
+    /* Simple PRNG */
     unsigned int seed = 42;
     float prev_input[HOP_SIZE];
     int total_frames = 8;
@@ -181,7 +181,7 @@ void test_stft_roundtrip_white_noise(void) {
             seed = seed * 1103515245 + 12345;
             input[i] = ((float)(seed >> 16) / 32768.0f) - 1.0f;
         }
-        /* overlap-addの1フレーム遅延: outputはprev_inputに対応 */
+        /* overlap-add 1-frame latency: output corresponds to prev_input */
         if (f == total_frames - 2) {
             memcpy(prev_input, input, sizeof(input));
         }
@@ -197,7 +197,7 @@ void test_stft_roundtrip_white_noise(void) {
     TEST_ASSERT_FLOAT_WITHIN(1e-4f, 0.0f, max_error);
 }
 
-/* --- ストリーミング一貫性 --- */
+/* --- Streaming Continuity --- */
 
 void test_stft_streaming_continuity(void) {
     float spec_real[FREQ_BINS];
@@ -219,16 +219,16 @@ void test_stft_streaming_continuity(void) {
         memcpy(&reconstructed[f * HOP_SIZE], output, HOP_SIZE * sizeof(float));
     }
 
-    /* 安定後のフレーム境界でジャンプがないことを確認 (1フレーム遅延考慮) */
+    /* Verify no discontinuities at frame boundaries after stabilization (accounting for 1-frame latency) */
     for (int f = 6; f < total_frames - 1; f++) {
         int boundary = (f + 1) * HOP_SIZE;
         float diff = fabsf(reconstructed[boundary] - reconstructed[boundary - 1]);
-        /* 440Hz正弦波の隣接サンプル差は最大 2π*440/48000 ≈ 0.058 */
+        /* Max adjacent sample difference for a 440Hz sine wave: 2π*440/48000 ≈ 0.058 */
         TEST_ASSERT_TRUE(diff < 0.1f);
     }
 }
 
-/* --- ゼロ入力 --- */
+/* --- Zero Input --- */
 
 void test_stft_all_zeros(void) {
     float input[HOP_SIZE];
@@ -246,7 +246,7 @@ void test_stft_all_zeros(void) {
     }
 }
 
-/* --- リセット --- */
+/* --- Reset --- */
 
 void test_stft_reset_clears_state(void) {
     float input[HOP_SIZE];

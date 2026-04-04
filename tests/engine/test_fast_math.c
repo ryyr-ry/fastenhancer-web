@@ -1,9 +1,10 @@
 /*
- * test_fast_math.c — Phase 3B-F: -ffast-math 差分検証ハーネス
+ * test_fast_math.c — Phase 3B-F: -ffast-math difference verification harness
  *
- * このプログラムは deterministic な重みと入力で推論を実行し、
- * 出力系列を標準出力へ書き出す。通常ビルド版と -ffast-math 版を
- * 別々にコンパイルして出力差分を比較する。
+ * This program runs inference with deterministic weights and inputs,
+ * and writes the output sequence to stdout. A normal build and a
+ * -ffast-math build are compiled separately, then their outputs are
+ * compared for differences.
  */
 
 #include "fastenhancer.h"
@@ -16,7 +17,7 @@
 #define PI_F 3.14159265358979323846f
 #define FE_FAST_MATH_FRAMES 16
 
-/* Unity互換のためのスタブ（このファイルは自前main()の独立ハーネス） */
+/* Stubs for Unity compatibility (this file is a standalone harness with its own main()) */
 void setUp(void) {}
 void tearDown(void) {}
 

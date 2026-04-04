@@ -40,6 +40,7 @@ TEST_CONFIGS = {
     },
     "test_adversarial": {
         "sources": [
+            "src/engine/pipeline.c",
             "src/engine/fastenhancer.c",
             "src/engine/common/fft.c",
             "src/engine/common/stft.c",
@@ -51,7 +52,7 @@ TEST_CONFIGS = {
         ],
     },
     "test_benchmark_stats": {
-        "sources": [],  # Header-only or minimal
+        "sources": ["src/engine/benchmark_stats.c"],
     },
     "test_compression": {
         "sources": ["src/engine/common/compression.c"],
@@ -61,6 +62,7 @@ TEST_CONFIGS = {
     },
     "test_edge_cases": {
         "sources": [
+            "src/engine/pipeline.c",
             "src/engine/fastenhancer.c",
             "src/engine/common/fft.c",
             "src/engine/common/stft.c",
@@ -73,6 +75,7 @@ TEST_CONFIGS = {
     },
     "test_exports": {
         "sources": [
+            "src/engine/pipeline.c",
             "src/engine/exports.c",
             "src/engine/fastenhancer.c",
             "src/engine/common/fft.c",
@@ -86,6 +89,7 @@ TEST_CONFIGS = {
     },
     "test_fast_math": {
         "sources": [
+            "src/engine/pipeline.c",
             "src/engine/fastenhancer.c",
             "src/engine/common/fft.c",
             "src/engine/common/stft.c",
@@ -101,6 +105,7 @@ TEST_CONFIGS = {
     },
     "test_golden_vector": {
         "sources": [
+            "src/engine/pipeline.c",
             "src/engine/exports.c",
             "src/engine/fastenhancer.c",
             "src/engine/common/fft.c",
@@ -120,6 +125,7 @@ TEST_CONFIGS = {
     },
     "test_inference": {
         "sources": [
+            "src/engine/pipeline.c",
             "src/engine/fastenhancer.c",
             "src/engine/common/fft.c",
             "src/engine/common/stft.c",
@@ -135,6 +141,7 @@ TEST_CONFIGS = {
     },
     "test_safety": {
         "sources": [
+            "src/engine/pipeline.c",
             "src/engine/fastenhancer.c",
             "src/engine/common/gru.c",
             "src/engine/common/compression.c",
@@ -147,6 +154,7 @@ TEST_CONFIGS = {
     },
     "test_simd_accuracy": {
         "sources": [
+            "src/engine/pipeline.c",
             "src/engine/fastenhancer.c",
             "src/engine/common/activations.c",
             "src/engine/common/attention.c",
@@ -182,6 +190,7 @@ def build_compile_command(test_name: str) -> List[str]:
         "-O2",
         "-std=c11",
         "-D_CRT_SECURE_NO_WARNINGS",
+        "-D_NORETURN=",  # Work around clang stdnoreturn.h conflict with Windows SDK
         f"-I{TESTS_DIR / 'unity'}",
         f"-I{COMMON_DIR}",
         f"-I{SRC_DIR}",

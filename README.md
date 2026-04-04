@@ -12,9 +12,9 @@ Most browser-based noise removal solutions depend on generic inference runtimes.
 
 | Model | Parameters | WASM + Weights (gzip) | Processing Time (SIMD) | Budget Utilization |
 |-------|-----------|----------------------|----------------------|-------------------|
-| **Tiny** | 28K | **128 KB** | 0.51 ms | 4.8% |
-| **Base** | 101K | **395 KB** | 1.71 ms | 16% |
-| **Small** | 207K | **783 KB** | 3.84 ms | 36% |
+| **Tiny** | 28K | **124 KB** | 0.45 ms | 4.2% |
+| **Base** | 101K | **391 KB** | 1.63 ms | 15% |
+| **Small** | 207K | **780 KB** | 3.88 ms | 36% |
 
 - 48 kHz native — no resampling artifacts
 - WASM SIMD acceleration with relaxed-simd FMA
@@ -110,7 +110,7 @@ const {
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `modelSize` | `'tiny' \| 'base' \| 'small'` | Model size to use (default: `'small'`) |
+| `modelSize` | `'tiny' \| 'base' \| 'small'` | Model size to use (required) |
 | `options.baseUrl` | `string` | Base URL for WASM/weight files |
 | `options.simd` | `boolean` | Force SIMD on/off (auto-detected by default) |
 | `options.workletUrl` | `string` | Custom AudioWorklet processor URL |
@@ -140,10 +140,10 @@ import { createStreamDenoiser } from 'fastenhancer-web';
 import { diagnose } from 'fastenhancer-web';
 
 const result = await diagnose();
-// { wasm: true, simd: true, audioContext: true, audioWorklet: true, overall: true, issues: [] }
+// { wasm: true, simd: true, audioContext: true, audioWorklet: true, overall: true, recommended: true, issues: [] }
 ```
 
-### `getModels()` / `recommendModel(priority)` — Model Selection
+### `getModels()` / `recommendModel(options?)` — Model Selection
 
 ```typescript
 import { getModels, recommendModel } from 'fastenhancer-web';
@@ -151,8 +151,8 @@ import { getModels, recommendModel } from 'fastenhancer-web';
 const models = getModels();
 // [{ id: 'tiny', ... }, { id: 'base', ... }, { id: 'small', ... }]
 
-const recommended = recommendModel();
-// { id: 'small', reason: '最高品質のノイズ除去。多くの環境で推奨。' }
+const recommended = recommendModel({ priority: 'quality' });
+// { id: 'small', reason: 'Highest-quality noise removal. Recommended for most environments.' }
 ```
 
 ### Error Classes
@@ -181,12 +181,12 @@ All models process 48 kHz audio natively with a 512-sample hop size (10.67 ms fr
 | | Tiny | Base | Small |
 |---|------|------|-------|
 | **Parameters** | 28K | 101K | 207K |
-| **WASM SIMD size** | 60 KB | 58 KB | 60 KB |
+| **WASM SIMD size** | 46 KB | 45 KB | 46 KB |
 | **Weights size** | 111 KB | 397 KB | 814 KB |
-| **Total (gzip)** | **128 KB** | **395 KB** | **783 KB** |
-| **Processing time (SIMD median)** | 0.51 ms | 1.71 ms | 3.84 ms |
-| **Processing time (SIMD P99)** | 0.76 ms | 2.09 ms | 4.42 ms |
-| **Budget utilization** | 4.8% | 16% | 36% |
+| **Total (gzip)** | **124 KB** | **391 KB** | **780 KB** |
+| **Processing time (SIMD median)** | 0.45 ms | 1.63 ms | 3.88 ms |
+| **Processing time (SIMD P99)** | 0.67 ms | 1.89 ms | 4.77 ms |
+| **Budget utilization** | 4.2% | 15% | 36% |
 | **RNNFormer blocks** | 2 | 3 | 3 |
 | **Encoder blocks** | 2 | 2 | 3 |
 | **Channels** | 24 | 48 | 64 |
@@ -218,7 +218,7 @@ Clean Audio Output (48 kHz)
 ```
 
 **Key design decisions:**
-- WASM binary is embedded in JS via Emscripten SINGLE_FILE mode (no separate .wasm fetch)
+- `loadModel()` fetches WASM binary (`.wasm`), weights (`.bin`), and export map (`.json`) in parallel
 - AudioWorklet uses raw `WebAssembly.instantiate()` — no Emscripten glue inside the worklet
 - WASM binary is transferred as ArrayBuffer from main thread to worklet via `postMessage`
 - All neural network buffers are pre-allocated at init time (zero runtime malloc)
@@ -231,13 +231,13 @@ Clean Audio Output (48 kHz)
 |---------|--------|-------|
 | Chrome 91+ | ✅ Fully supported | WASM SIMD + AudioWorklet |
 | Edge 91+ | ✅ Fully supported | Chromium-based |
-| Firefox 89+ | ⚠️ Untested | WASM SIMD supported since 89 |
+| Firefox 89+ | ✅ E2E tested | WASM SIMD supported since 89 |
 | Safari 16.4+ | ⚠️ Untested | WASM SIMD supported since 16.4 |
 
 **Requirements:**
 - WASM SIMD support (falls back to scalar if unavailable)
 - AudioWorklet support
-- CSP must allow `blob:` URLs (for SINGLE_FILE WASM)
+- CSP must allow `wasm-unsafe-eval` (for `WebAssembly.instantiate()`)
 - No `SharedArrayBuffer` / `Cross-Origin-Isolation` headers needed
 
 ---
@@ -246,12 +246,11 @@ Clean Audio Output (48 kHz)
 
 ```json
 {
-  ".":            "Main API (createDenoiser, createStreamDenoiser, diagnose, getModels, ...)",
+  ".":            "Main API (createDenoiser, createStreamDenoiser, loadModel, diagnose, getModels, ...)",
   "./react":      "React Hook (useDenoiser)",
   "./stream":     "AudioWorklet integration (createStreamDenoiser)",
-  "./loader":     "WASM loader utilities",
-  "./errors":     "Error classes",
-  "./wasm/*":     "WASM SINGLE_FILE modules (tiny/base/small × scalar/simd)"
+  "./loader":     "WASM loader utilities (loadModel)",
+  "./errors":     "Error classes"
 }
 ```
 
@@ -263,7 +262,7 @@ Clean Audio Output (48 kHz)
 # Install dependencies
 bun install
 
-# Run TypeScript unit tests (162 tests)
+# Run all vitest tests (168 tests: unit + WASM + adversarial)
 bun run test
 
 # Build TypeScript
@@ -275,7 +274,7 @@ bun run build:wasm:all
 # Build everything
 bun run build:all
 
-# Run C engine native tests (154 tests, requires gcc/MinGW)
+# Run C engine native tests (200 tests, requires gcc/MinGW)
 # Individual test executables are built and run via build scripts
 ```
 
@@ -283,11 +282,10 @@ bun run build:all
 
 | Suite | Environment | Framework | Tests | Purpose |
 |-------|-------------|-----------|-------|---------|
-| C native | gcc (MinGW) | Unity | 154 | C module correctness |
-| WASM scalar | Emscripten (no SIMD) | vitest | 31 | Emscripten conversion |
-| WASM SIMD | Emscripten (-msimd128) | vitest | 31 | SIMD-specific bugs |
-| TypeScript unit | Node.js | vitest | 162 | API layer correctness |
-| Browser E2E | Chrome | Playwright | 9 | AudioWorklet integration |
+| C native | gcc (MinGW) | Unity | 200 | C module correctness |
+| WASM | Emscripten (scalar + SIMD) | vitest | 30 | Emscripten conversion + SIMD correctness |
+| TypeScript unit | Node.js | vitest | 138 | API / worklet / lifecycle correctness |
+| Browser E2E | Chrome + Firefox | Playwright | 30 | AudioWorklet integration |
 
 **Differential debugging:** C↔WASM scalar = Emscripten issue, scalar↔SIMD = SIMD issue, SIMD↔Browser = integration issue.
 
@@ -295,7 +293,7 @@ bun run build:all
 
 ## Numerical Accuracy
 
-PyTorch reference ↔ WASM SIMD output comparison (1000 frames):
+PyTorch reference ↔ WASM SIMD output comparison (40 frames):
 
 | Model | MSE | Max Absolute Difference |
 |-------|-----|------------------------|

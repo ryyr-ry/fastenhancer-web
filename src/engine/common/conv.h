@@ -1,38 +1,38 @@
 /*
- * conv.h — 1次元畳み込みインターフェース
+ * conv.h — 1D convolution interface
  */
 
 #ifndef FE_CONV_H
 #define FE_CONV_H
 
-/* Conv1d: 通常の1次元畳み込み
- * input:  [in_channels × in_len]
- * weight: [out_channels × in_channels × kernel_size]
+/* Conv1d: Standard 1D convolution
+ * input:  [in_channels x in_len]
+ * weight: [out_channels x in_channels x kernel_size]
  * bias:   [out_channels]
- * output: [out_channels × out_len]
+ * output: [out_channels x out_len]
  * out_len = (in_len + 2*padding - kernel_size) / stride + 1
  */
 void fe_conv1d(const float* input, const float* weight, const float* bias,
                float* output, int in_len, int in_channels, int out_channels,
                int kernel_size, int stride, int padding);
 
-/* StridedConv1d: padding=0のストライド畳み込み (Encoder用)
- * 戻り値: 出力長 */
+/* StridedConv1d: Strided convolution with padding=0 (for Encoder)
+ * Returns: output length */
 int fe_strided_conv1d(const float* input, const float* weight, const float* bias,
                       float* output, int in_len, int in_channels, int out_channels,
                       int kernel_size, int stride);
 
-/* ConvTranspose1d: 転置畳み込み (Decoder用)
+/* ConvTranspose1d: Transposed convolution (for Decoder)
  * output_len = (in_len - 1) * stride + kernel_size - 2 * padding
- * padding: PyTorch互換。フル出力から先頭/末尾のpadding分を除去。
- * 戻り値: 出力長 */
+ * padding: PyTorch compatible. Removes padding from the beginning/end of full output.
+ * Returns: output length */
 int fe_conv_transpose1d(const float* input, const float* weight, const float* bias,
                         float* output, int in_len, int in_channels, int out_channels,
                         int kernel_size, int stride, int padding);
 
-/* Conv1d + BatchNorm融合: y = conv(x) * scale + bias
- * 前提: conv自体のbiasは0（BatchNormに吸収済み）。
- * export_weights.pyがconv.bias + BN変換を事前にbn_biasへ融合する。 */
+/* Conv1d + BatchNorm fusion: y = conv(x) * scale + bias
+ * Assumption: conv's own bias is 0 (absorbed into BatchNorm).
+ * export_weights.py pre-fuses conv.bias + BN transform into bn_bias. */
 void fe_conv1d_bn(const float* input, const float* weight,
                   const float* bn_scale, const float* bn_bias,
                   float* output, int in_len, int in_channels, int out_channels,

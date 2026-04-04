@@ -1,14 +1,14 @@
 /*
- * test_gru.c — Phase 2-E: GRUテスト (TDD Red)
+ * test_gru.c — Phase 2-E: GRU Tests (TDD Red)
  *
- * 検証対象:
- *   - ゼロ入力 → ゼロ出力
- *   - 既知重みでの期待出力
- *   - 1000ステップ安定性 (カテゴリ1: 数値安定性)
- *   - 隠れ状態リセット
- *   - 更新ゲート/リセットゲートの動作
+ * Verification targets:
+ *   - Zero input → zero output
+ *   - Expected output with known weights
+ *   - 1000-step stability (Category 1: Numerical stability)
+ *   - Hidden state reset
+ *   - Update gate / reset gate behavior
  *
- * コンパイル:
+ * Compile:
  *   gcc -I tests/engine/unity -I src/engine/common \
  *       tests/engine/unity/unity.c tests/engine/test_gru.c \
  *       src/engine/common/gru.c src/engine/common/activations.c -o test_gru -lm
@@ -22,19 +22,19 @@
 void setUp(void) {}
 void tearDown(void) {}
 
-/* --- ゼロ入力テスト --- */
+/* --- Zero Input Test --- */
 
 void test_gru_zero_input_zero_hidden(void) {
-    /* 入力=0, 隠れ状態=0 → 出力は0（バイアスにも依存するが、
-     * ゼロ初期化されたGRUでは z=sigmoid(0)=0.5, r=sigmoid(0)=0.5,
-     * n=tanh(0)=0, h=(1-0.5)*0 + 0.5*0 = 0 となる。
-     * ただしバイアスが全てゼロの場合。 */
+    /* input=0, hidden state=0 → output is 0 (depends on bias, but
+     * for a zero-initialized GRU: z=sigmoid(0)=0.5, r=sigmoid(0)=0.5,
+     * n=tanh(0)=0, h=(1-0.5)*0 + 0.5*0 = 0.
+     * This holds when all biases are zero. */
     int hidden_size = 20;  /* Tiny C2=20 */
     int input_size = 20;
 
     float input[20] = {0};
     float hidden[20] = {0};
-    /* ゼロ重み・ゼロバイアス */
+    /* Zero weights / zero biases */
     float W_z[20 * 20] = {0};
     float U_z[20 * 20] = {0};
     float b_z[20] = {0};
@@ -61,10 +61,10 @@ void test_gru_zero_input_zero_hidden(void) {
     }
 }
 
-/* --- 既知重みでの手計算テスト --- */
+/* --- Manual Calculation Test with Known Weights --- */
 
 void test_gru_known_weights_single_unit(void) {
-    /* hidden_size=1, input_size=1 のミニGRUで手計算と照合 */
+    /* Verify against manual calculation using a mini GRU with hidden_size=1, input_size=1 */
     int hidden_size = 1;
     int input_size = 1;
 
@@ -92,7 +92,7 @@ void test_gru_known_weights_single_unit(void) {
 
     fe_gru_step(&weights, input, hidden);
 
-    /* 手計算:
+    /* Manual calculation:
      * z = sigmoid(0.5*1 + 0.5*0 + 0) = sigmoid(0.5) ≈ 0.6225
      * r = sigmoid(0.5*1 + 0.5*0 + 0) = sigmoid(0.5) ≈ 0.6225
      * n = tanh(1.0*1 + 0.6225*(1.0*0 + 0)) = tanh(1.0) ≈ 0.7616
@@ -105,7 +105,7 @@ void test_gru_known_weights_single_unit(void) {
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, expected_h, hidden[0]);
 }
 
-/* --- 1000ステップ安定性テスト (カテゴリ1) --- */
+/* --- 1000-Step Stability Test (Category 1) --- */
 
 void test_gru_stability_1000_steps(void) {
     int hidden_size = 20;
@@ -114,7 +114,7 @@ void test_gru_stability_1000_steps(void) {
     float input[20] = {0};
     float hidden[20] = {0};
 
-    /* 小さなランダム重み */
+    /* Small random weights */
     float W_z[400], U_z[400], b_z[20];
     float W_r[400], U_r[400], b_r[20];
     float W_n[400], U_n[400], b_in_n[20], b_hn_n[20];
@@ -143,7 +143,7 @@ void test_gru_stability_1000_steps(void) {
         fe_gru_step(&weights, input, hidden);
     }
 
-    /* 1000ステップ後、全隠れ状態が有限かつ発散していないこと */
+    /* After 1000 steps, all hidden states must be finite and not diverged */
     for (int i = 0; i < hidden_size; i++) {
         TEST_ASSERT_FALSE(isnan(hidden[i]));
         TEST_ASSERT_FALSE(isinf(hidden[i]));
@@ -151,7 +151,7 @@ void test_gru_stability_1000_steps(void) {
     }
 }
 
-/* --- 10000ステップ安定性テスト (カテゴリ1: 長時間) --- */
+/* --- 10000-Step Stability Test (Category 1: Long Duration) --- */
 
 void test_gru_stability_10000_steps(void) {
     int hidden_size = 20;
@@ -164,7 +164,7 @@ void test_gru_stability_10000_steps(void) {
     float W_r[400] = {0}, U_r[400] = {0}, b_r[20] = {0};
     float W_n[400] = {0}, U_n[400] = {0}, b_in_n[20] = {0}, b_hn_n[20] = {0};
 
-    /* 対角要素のみ小さな値 */
+    /* Small values only on diagonal elements */
     for (int i = 0; i < 20; i++) {
         W_z[i * 20 + i] = 0.01f; U_z[i * 20 + i] = 0.01f;
         W_r[i * 20 + i] = 0.01f; U_r[i * 20 + i] = 0.01f;
@@ -190,7 +190,7 @@ void test_gru_stability_10000_steps(void) {
     }
 }
 
-/* --- 隠れ状態リセット --- */
+/* --- Hidden State Reset --- */
 
 void test_gru_reset_hidden(void) {
     int hidden_size = 20;
@@ -204,7 +204,7 @@ void test_gru_reset_hidden(void) {
     }
 }
 
-/* --- 非ゼロ入力での動作確認 --- */
+/* --- Non-Zero Input Behavior Verification --- */
 
 void test_gru_nonzero_input_produces_nonzero_output(void) {
     int hidden_size = 4;

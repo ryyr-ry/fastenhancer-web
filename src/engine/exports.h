@@ -1,5 +1,5 @@
 /*
- * exports.h — WASM/FFI向け公開API
+ * exports.h — WASM/FFI public API
  */
 
 #ifndef FE_EXPORTS_H

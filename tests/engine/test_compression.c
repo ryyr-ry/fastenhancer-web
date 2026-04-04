@@ -1,14 +1,14 @@
 /*
- * test_compression.c — Phase 2-G: パワー圧縮テスト (TDD Red)
+ * test_compression.c — Phase 2-G: Power compression test (TDD Red)
  *
- * 検証対象:
- *   - mag^0.3 パワー圧縮 (ダイナミックレンジ縮小)
- *   - 微小値の安定性 (カテゴリ1: 数値安定性)
- *   - NaN/Inf入力の安全性 (カテゴリ2: エッジケース)
- *   - ゼロ入力
- *   - 逆圧縮 (mag^(1/0.3)) の整合性
+ * Test targets:
+ *   - mag^0.3 power compression (dynamic range reduction)
+ *   - Small value stability (Category 1: numerical stability)
+ *   - NaN/Inf input safety (Category 2: edge cases)
+ *   - Zero input
+ *   - Inverse compression (mag^(1/0.3)) consistency
  *
- * コンパイル:
+ * Compile:
  *   gcc -I tests/engine/unity -I src/engine/common \
  *       tests/engine/unity/unity.c tests/engine/test_compression.c \
  *       src/engine/common/compression.c -o test_compression -lm
@@ -25,7 +25,7 @@
 void setUp(void) {}
 void tearDown(void) {}
 
-/* --- 基本テスト --- */
+/* --- Basic tests --- */
 
 void test_compression_unit_value(void) {
     /* mag=1.0 → 1.0^0.3 = 1.0 */
@@ -56,7 +56,7 @@ void test_compression_monotonic(void) {
 }
 
 void test_compression_reduces_dynamic_range(void) {
-    /* 入力範囲: [0.01, 100] → 圧縮後の範囲は狭くなるはず */
+    /* Input range: [0.01, 100] → compressed range should be narrower */
     float lo_in = 0.01f;
     float hi_in = 100.0f;
     float lo_out, hi_out;
@@ -68,7 +68,7 @@ void test_compression_reduces_dynamic_range(void) {
     TEST_ASSERT_TRUE(range_out < range_in);
 }
 
-/* --- 微小値の安定性 (カテゴリ1) --- */
+/* --- Small value stability (Category 1) --- */
 
 void test_compression_tiny_value(void) {
     float input[1] = {1e-20f};
@@ -81,7 +81,7 @@ void test_compression_tiny_value(void) {
 }
 
 void test_compression_denormal(void) {
-    float input[1] = {FLT_MIN * 0.1f};  /* デノーマル値 */
+    float input[1] = {FLT_MIN * 0.1f};  /* Denormal value */
     float output[1];
     fe_power_compress(input, output, 1, 0.3f);
 
@@ -100,14 +100,14 @@ void test_compression_flt_min(void) {
     TEST_ASSERT_TRUE(output[0] >= 0.0f);
 }
 
-/* --- NaN/Inf入力 (カテゴリ2) --- */
+/* --- NaN/Inf input (Category 2) --- */
 
 void test_compression_nan_input(void) {
     float input[1] = {NAN};
     float output[1];
     fe_power_compress(input, output, 1, 0.3f);
 
-    /* NaN入力は0.0fにクランプされるべき */
+    /* NaN input should be clamped to 0.0f */
     TEST_ASSERT_FALSE(isnan(output[0]));
     TEST_ASSERT_FLOAT_WITHIN(1e-10f, 0.0f, output[0]);
 }
@@ -123,7 +123,7 @@ void test_compression_inf_input(void) {
 }
 
 void test_compression_negative_input(void) {
-    /* magnitudeは非負のはずだが、安全のため */
+    /* Magnitude should be non-negative, but for safety */
     float input[1] = {-1.0f};
     float output[1];
     fe_power_compress(input, output, 1, 0.3f);
@@ -132,7 +132,7 @@ void test_compression_negative_input(void) {
     TEST_ASSERT_TRUE(output[0] >= 0.0f);
 }
 
-/* --- ゼロ入力 --- */
+/* --- Zero input --- */
 
 void test_compression_zero(void) {
     float input[1] = {0.0f};
@@ -142,7 +142,7 @@ void test_compression_zero(void) {
     TEST_ASSERT_FLOAT_WITHIN(1e-10f, 0.0f, output[0]);
 }
 
-/* --- バッチ処理 --- */
+/* --- Batch processing --- */
 
 void test_compression_full_spectrum(void) {
     float input[FREQ_BINS];
@@ -161,7 +161,7 @@ void test_compression_full_spectrum(void) {
     }
 }
 
-/* --- 逆圧縮テスト --- */
+/* --- Inverse compression test --- */
 
 void test_decompression_roundtrip(void) {
     float input[5] = {0.1f, 0.5f, 1.0f, 2.0f, 5.0f};
@@ -183,10 +183,10 @@ void test_decompression_zero(void) {
     TEST_ASSERT_FLOAT_WITHIN(1e-10f, 0.0f, output[0]);
 }
 
-/* --- 複素スペクトル圧縮テスト (3B-0b) --- */
+/* --- Complex spectrum compression test (3B-0b) --- */
 
 void test_complex_compression_unit_circle(void) {
-    /* 単位円上の点: mag=1 → scale=1^(-0.7)=1 → 変化なし */
+    /* Point on unit circle: mag=1 → scale=1^(-0.7)=1 → no change */
     float re[1] = {0.6f};
     float im[1] = {0.8f};   /* mag = sqrt(0.36+0.64) = 1.0 */
     float out_re[1], out_im[1];
@@ -214,7 +214,7 @@ void test_complex_compression_known_values(void) {
 }
 
 void test_complex_compression_magnitude_check(void) {
-    /* 圧縮後のmag = original_mag^0.3 であることを検証 */
+    /* Verify that compressed mag = original_mag^0.3 */
     float re[4] = {3.0f, 0.0f, 1.0f, -2.0f};
     float im[4] = {4.0f, 5.0f, 1.0f,  3.0f};
     float out_re[4], out_im[4];
@@ -231,7 +231,7 @@ void test_complex_compression_magnitude_check(void) {
 }
 
 void test_complex_compression_preserves_phase(void) {
-    /* 圧縮は位相を保持する: atan2(out_im, out_re) == atan2(im, re) */
+    /* Compression preserves phase: atan2(out_im, out_re) == atan2(im, re) */
     float re[3] = {1.0f, -3.0f, 0.0f};
     float im[3] = {2.0f,  4.0f, 7.0f};
     float out_re[3], out_im[3];
@@ -246,7 +246,7 @@ void test_complex_compression_preserves_phase(void) {
 }
 
 void test_complex_compression_zero_magnitude(void) {
-    /* mag=0: NaN/Infにならないこと */
+    /* mag=0: Don't become NaN/Inf */
     float re[1] = {0.0f};
     float im[1] = {0.0f};
     float out_re[1], out_im[1];
@@ -262,7 +262,7 @@ void test_complex_compression_zero_magnitude(void) {
 }
 
 void test_complex_compression_roundtrip(void) {
-    /* compress → decompress = 元の値 */
+    /* compress → decompress = original value */
     float re[5] = {1.0f, -2.0f, 0.5f, 3.0f, 0.0f};
     float im[5] = {0.0f,  1.5f, 0.5f, -4.0f, 2.0f};
     float comp_re[5], comp_im[5];
@@ -280,7 +280,7 @@ void test_complex_compression_roundtrip(void) {
 }
 
 void test_complex_compression_nan_input(void) {
-    /* NaN入力は安全に処理 */
+    /* NaN input is safely handled */
     float re[2] = {NAN, 1.0f};
     float im[2] = {1.0f, NAN};
     float out_re[2], out_im[2];
@@ -318,7 +318,7 @@ void test_complex_compression_inf_input_safe(void) {
 }
 
 void test_complex_compression_batch_512(void) {
-    /* 512 bins (48kHz STFT Nyquist除去後) の一括処理 */
+    /* 512 bins (48kHz STFT after Nyquist removal) batch processing */
     float re[512], im[512];
     float out_re[512], out_im[512];
 

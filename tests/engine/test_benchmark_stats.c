@@ -1,5 +1,5 @@
 /*
- * test_benchmark_stats.c — Phase 3B-G: ベンチマーク統計ヘルパー テスト
+ * test_benchmark_stats.c — Phase 3B-G: Benchmark statistics helper test
  */
 
 #include "unity.h"

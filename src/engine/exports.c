@@ -1,5 +1,5 @@
 /*
- * exports.c — WASM/FFI向けラッパー
+ * exports.c — WASM/FFI wrapper
  */
 
 #include "exports.h"

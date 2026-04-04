@@ -1,9 +1,9 @@
 /*
- * test_exports.c — Phase 3B-E: WASMエクスポートAPI テスト
+ * test_exports.c — Phase 3B-E: WASM Export API Tests
  *
- * 検証対象:
- *   - fe_init: 重みヘッダ/CRC検証
- *   - fe_process: state内バッファ経由の処理
+ * Verification targets:
+ *   - fe_init: Weight header / CRC validation
+ *   - fe_process: Processing via state internal buffers
  *   - fe_get_input_ptr / fe_get_output_ptr
  *   - fe_get_hop_size / fe_get_n_fft
  *   - fe_set_hpf / fe_set_agc
@@ -324,7 +324,7 @@ void test_fe_process_internal_buffer_alias_safe(void) {
     fe_set_hpf(state, 1);
     fe_set_agc(state, 1);
 
-    /* 同一バッファを input と output の両方に渡して alias テスト */
+    /* Alias test: pass the same buffer as both input and output */
     for (int frame = 0; frame < 8; frame++) {
         for (int i = 0; i < FRAME_LEN; i++) {
             input[i] = 0.05f * sinf(2.0f * PI_F * 500.0f * (frame * FRAME_LEN + i) / 48000.0f);
@@ -350,7 +350,7 @@ void test_fe_set_hpf_toggles_correctly(void) {
     float out_no_hpf[FRAME_LEN];
     float out_with_hpf[FRAME_LEN];
 
-    /* HPF無効で処理 */
+    /* Process with HPF disabled */
     fe_set_hpf(state, 0);
     for (int i = 0; i < FRAME_LEN; i++) {
         input[i] = 0.5f;
@@ -360,7 +360,7 @@ void test_fe_set_hpf_toggles_correctly(void) {
 
     fe_reset(state);
 
-    /* HPF有効で処理 */
+    /* Process with HPF enabled */
     fe_set_hpf(state, 1);
     for (int i = 0; i < FRAME_LEN; i++) {
         input[i] = 0.5f;
@@ -368,7 +368,7 @@ void test_fe_set_hpf_toggles_correctly(void) {
     fe_process(state, input, output);
     memcpy(out_with_hpf, output, sizeof(out_with_hpf));
 
-    /* DC成分がHPFで異なる出力になることを確認 */
+    /* Verify that the HPF produces different output for the DC component */
     int differ = 0;
     for (int i = 0; i < FRAME_LEN; i++) {
         if (fabsf(out_no_hpf[i] - out_with_hpf[i]) > 1e-8f) differ++;

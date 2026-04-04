@@ -1,12 +1,12 @@
 /*
- * test_activations.c — Phase 2-A: 活性化関数テスト (TDD Red)
+ * test_activations.c — Phase 2-A: Activation function test (TDD Red)
  *
- * 検証対象:
- *   - sigmoid 多項式近似 (4-5次ミニマックス近似、[-8,8]範囲)
+ * Test targets:
+ *   - sigmoid polynomial approximation (4-5th order minimax approximation, [-8,8] range)
  *   - SiLU (= x * sigmoid(x))
- *   - 飽和域の精度 (カテゴリ1: 数値安定性)
+ *   - Saturation region accuracy (Category 1: numerical stability)
  *
- * コンパイル:
+ * Compile:
  *   gcc -I tests/engine/unity -I src/engine/common \
  *       tests/engine/unity/unity.c tests/engine/test_activations.c \
  *       src/engine/common/activations.c -o test_activations -lm
@@ -20,7 +20,7 @@
 void setUp(void) {}
 void tearDown(void) {}
 
-/* --- sigmoid テスト --- */
+/* --- sigmoid tests --- */
 
 void test_sigmoid_at_zero(void) {
     float result = fe_sigmoid(0.0f);
@@ -106,7 +106,7 @@ void test_sigmoid_monotonic(void) {
     }
 }
 
-/* --- SiLU テスト --- */
+/* --- SiLU tests --- */
 
 void test_silu_at_zero(void) {
     float result = fe_silu(0.0f);
@@ -173,7 +173,7 @@ void test_silu_inf_input(void) {
     TEST_ASSERT_FALSE(isinf(result));
 }
 
-/* --- バッチ処理テスト (SIMD向け) --- */
+/* --- Batch processing tests (for SIMD) --- */
 
 void test_sigmoid_batch(void) {
     float input[8] = {-4.0f, -2.0f, -1.0f, 0.0f, 1.0f, 2.0f, 4.0f, 8.0f};

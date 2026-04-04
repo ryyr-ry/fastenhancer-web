@@ -1,18 +1,18 @@
 /*
- * test_edge_cases.c — Phase 2-H: エッジケース入力テスト (TDD Red)
+ * test_edge_cases.c — Phase 2-H: Edge case input tests (TDD Red)
  *
- * 検証対象 (カテゴリ2: エッジケース入力):
- *   - 全ゼロ入力
- *   - 最大振幅 (±1.0f交互)
- *   - DC offset (定数入力)
- *   - NaN注入
- *   - Inf注入
- *   - 1サンプルインパルス
+ * Test targets (Category 2: Edge case inputs):
+ *   - All-zero input
+ *   - Maximum amplitude (alternating ±1.0f)
+ *   - DC offset (constant input)
+ *   - NaN injection
+ *   - Inf injection
+ *   - Single sample impulse
  *
- * これらはfe_process()（統合パイプライン）に対するテスト。
- * 個別モジュールのエッジケースは各モジュールテストでカバー。
+ * These are tests for fe_process() (the integrated pipeline).
+ * Edge cases for individual modules are covered in their respective module tests.
  *
- * コンパイル:
+ * Compile:
  *   gcc -I tests/engine/unity -I src/engine/common -I src/engine \
  *       tests/engine/unity/unity.c tests/engine/test_edge_cases.c \
  *       src/engine/fastenhancer.c src/engine/common/*.c -o test_edge_cases -lm
@@ -29,14 +29,14 @@
 
 static FeState* state;
 
-/* 全ゼロだが正しいサイズの重みでパイプラインの安定性を検証。
- * 実際の推論精度テストは test_inference.c が担当。 */
+/* Verify pipeline stability with all-zero weights of the correct size.
+ * Actual inference accuracy tests are handled by test_inference.c. */
 static float dummy_weights[FE_TOTAL_WEIGHTS];
 
 void setUp(void) {
     memset(dummy_weights, 0, sizeof(dummy_weights));
-    /* BN scale を 1.0 に設定しないと出力が全ゼロ固定になる。
-     * ここではクラッシュ耐性が目的なので全ゼロのまま。 */
+    /* Output will be stuck at all zeros unless BN scale is set to 1.0.
+     * Here we leave them all zero since the goal is crash resilience. */
     state = fe_create(FE_MODEL_TINY, dummy_weights, FE_TOTAL_WEIGHTS);
     TEST_ASSERT_NOT_NULL(state);
 }
@@ -48,7 +48,7 @@ void tearDown(void) {
     }
 }
 
-/* --- 全ゼロ入力 --- */
+/* --- All-zero input --- */
 
 void test_edge_all_zeros(void) {
     float* input = fe_get_input_ptr(state);
@@ -65,7 +65,7 @@ void test_edge_all_zeros(void) {
     }
 }
 
-/* --- 最大振幅 --- */
+/* --- Maximum amplitude --- */
 
 void test_edge_max_amplitude(void) {
     float* input = fe_get_input_ptr(state);
@@ -84,7 +84,7 @@ void test_edge_max_amplitude(void) {
     }
 }
 
-/* --- DC offset (定数入力) --- */
+/* --- DC offset (constant input) --- */
 
 void test_edge_dc_offset(void) {
     float* input = fe_get_input_ptr(state);
@@ -101,7 +101,7 @@ void test_edge_dc_offset(void) {
     }
 }
 
-/* --- DC offset連続処理 --- */
+/* --- DC offset sustained processing --- */
 
 void test_edge_dc_offset_sustained(void) {
     float* input = fe_get_input_ptr(state);
@@ -119,7 +119,7 @@ void test_edge_dc_offset_sustained(void) {
     }
 }
 
-/* --- NaN注入 --- */
+/* --- NaN injection --- */
 
 void test_edge_nan_first_sample(void) {
     float* input = fe_get_input_ptr(state);
@@ -131,7 +131,7 @@ void test_edge_nan_first_sample(void) {
     int ret = fe_process(state, input, output);
     TEST_ASSERT_EQUAL_INT(0, ret);
 
-    /* NaN注入後も出力全体がNaNやInfに汚染されないこと */
+    /* Ensure the entire output is not contaminated with NaN or Inf after NaN injection */
     int nan_count = 0;
     int inf_count = 0;
     for (int i = 0; i < HOP_SIZE; i++) {
@@ -157,7 +157,7 @@ void test_edge_nan_all_samples(void) {
     }
 }
 
-/* --- Inf注入 --- */
+/* --- Inf injection --- */
 
 void test_edge_positive_inf(void) {
     float* input = fe_get_input_ptr(state);
@@ -191,7 +191,7 @@ void test_edge_negative_inf(void) {
     }
 }
 
-/* --- 1サンプルインパルス --- */
+/* --- Single sample impulse --- */
 
 void test_edge_single_impulse(void) {
     float* input = fe_get_input_ptr(state);
@@ -228,16 +228,16 @@ void test_edge_reset_clears_hidden_state(void) {
     float* input = fe_get_input_ptr(state);
     float* output = fe_get_output_ptr(state);
 
-    /* いくつかフレームを処理して内部状態を変更 */
+    /* Process several frames to modify internal state */
     for (int f = 0; f < 10; f++) {
         for (int i = 0; i < HOP_SIZE; i++) input[i] = 0.3f;
         fe_process(state, input, output);
     }
 
-    /* リセット */
+    /* Reset */
     fe_reset(state);
 
-    /* リセット後のゼロ入力は初回と同じ出力になるはず */
+    /* Zero input after reset should produce the same output as the initial run */
     memset(input, 0, HOP_SIZE * sizeof(float));
     fe_process(state, input, output);
 
@@ -247,7 +247,7 @@ void test_edge_reset_clears_hidden_state(void) {
     }
 }
 
-/* --- 連続フレーム安定性 --- */
+/* --- Consecutive frame stability --- */
 
 void test_edge_many_frames_no_crash(void) {
     float* input = fe_get_input_ptr(state);

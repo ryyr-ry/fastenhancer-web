@@ -1,11 +1,11 @@
 /*
- * fft.c — 1024点 Cooley-Tukey Radix-2 DIT FFT
+ * fft.c — 1024-point Cooley-Tukey Radix-2 DIT FFT
  *
- * twiddle factor: W_N^k = cos(2πk/N) - j·sin(2πk/N)
- * 1024点 → 512個のtwiddle × 2(cos,sin) × 4B = 4KB
+ * twiddle factor: W_N^k = cos(2*pi*k/N) - j*sin(2*pi*k/N)
+ * 1024 points -> 512 twiddles x 2(cos,sin) x 4B = 4KB
  *
- * ビット反転置換 + butterfly演算。
- * 任意の2のべき乗サイズに対応（最大1024点）。
+ * Bit-reversal permutation + butterfly operations.
+ * Supports arbitrary power-of-two sizes (up to 1024 points).
  */
 
 #include "fft.h"
@@ -61,7 +61,7 @@ static void bit_reverse_permutation(float* real, float* imag, int n) {
 void fe_fft(float* real, float* imag, int n) {
     if (real == NULL || imag == NULL) return;
     if (n <= 0 || n > MAX_FFT_SIZE) return;
-    if ((n & (n - 1)) != 0) return;  /* 2のべき乗でなければ拒否 */
+    if ((n & (n - 1)) != 0) return;  /* Reject if not a power of two */
 
     init_twiddles();
     bit_reverse_permutation(real, imag, n);
@@ -94,7 +94,7 @@ void fe_ifft(float* real, float* imag, int n) {
     if (n <= 0 || n > MAX_FFT_SIZE) return;
     if ((n & (n - 1)) != 0) return;
 
-    /* 共役 → FFT → 共役 → 1/Nスケール */
+    /* Conjugate -> FFT -> conjugate -> 1/N scaling */
     for (int i = 0; i < n; i++) imag[i] = -imag[i];
 
     fe_fft(real, imag, n);

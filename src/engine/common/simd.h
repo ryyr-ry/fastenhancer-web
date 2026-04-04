@@ -1,11 +1,11 @@
 /*
- * simd.h — SIMDプリミティブ抽象化層
+ * simd.h — SIMD primitive abstraction layer
  *
- * 3つのバックエンド:
+ * Three backends:
  *   1. WASM SIMD128 (__wasm_simd128__)
- *   2. x86 SSE2 (__SSE2__) — nativeベンチマーク用
- *   3. スカラーフォールバック
- * 全関数はstatic inlineで定義（ヘッダオンリー）。
+ *   2. x86 SSE2 (__SSE2__) — for native benchmarks
+ *   3. Scalar fallback
+ * All functions are defined as static inline (header-only).
  */
 
 #ifndef FE_SIMD_H
@@ -14,7 +14,7 @@
 #include <math.h>
 #include <stdint.h>
 
-/* -ffast-math安全なInfinity定数（INFINITY マクロは -ffinite-math-only で UB） */
+/* -ffast-math safe Infinity constant (INFINITY macro is UB with -ffinite-math-only) */
 static inline float fe_inf_val(void) {
     union { uint32_t u; float f; } c = {0x7F800000u};
     return c.f;
@@ -97,7 +97,7 @@ static inline float f32x4_extract1(f32x4 v)     { return _mm_cvtss_f32(_mm_shuff
 static inline float f32x4_extract2(f32x4 v)     { return _mm_cvtss_f32(_mm_shuffle_ps(v, v, _MM_SHUFFLE(2,2,2,2))); }
 static inline float f32x4_extract3(f32x4 v)     { return _mm_cvtss_f32(_mm_shuffle_ps(v, v, _MM_SHUFFLE(3,3,3,3))); }
 
-#else /* スカラーフォールバック */
+#else /* Scalar fallback */
 
 typedef struct { float v[4]; } f32x4;
 
@@ -156,13 +156,13 @@ static inline float f32x4_extract3(f32x4 v) { return v.v[3]; }
 
 #endif /* __wasm_simd128__ / __SSE2__ / scalar */
 
-/* 水平加算: 4要素の合計を返す */
+/* Horizontal sum: returns the sum of 4 elements */
 static inline float f32x4_hsum(f32x4 v) {
     return f32x4_extract0(v) + f32x4_extract1(v) +
            f32x4_extract2(v) + f32x4_extract3(v);
 }
 
-/* 水平最大値 */
+/* Horizontal maximum */
 static inline float f32x4_hmax(f32x4 v) {
     float a = f32x4_extract0(v), b = f32x4_extract1(v);
     float c = f32x4_extract2(v), d = f32x4_extract3(v);
@@ -172,8 +172,8 @@ static inline float f32x4_hmax(f32x4 v) {
 }
 
 /*
- * SIMD行列ベクトル積: out[i] += sum_j(mat[i*cols+j] * vec[j])
- * 4列ずつ処理し、端数はスカラーで処理。
+ * SIMD matrix-vector product: out[i] += sum_j(mat[i*cols+j] * vec[j])
+ * Processes 4 columns at a time; remainder handled with scalar operations.
  */
 static inline void fe_matvec_add(const float* mat, const float* vec,
                                   float* out, int rows, int cols) {
@@ -192,21 +192,21 @@ static inline void fe_matvec_add(const float* mat, const float* vec,
     }
 }
 
-/* ---- 高速exp/sigmoid/tanh SIMD関数 ---- */
+/* ---- Fast exp/sigmoid/tanh SIMD functions ---- */
 
-/* sigmoid飽和域: |x| >= 16 で 0.0 or 1.0 にクランプ (float32精度で十分) */
+/* Sigmoid saturation range: |x| >= 16 clamps to 0.0 or 1.0 (sufficient for float32 precision) */
 #define FE_SIGMOID_CLAMP 16.0f
 
-/* float32 exp overflow境界: exp(88) ≈ 1.65e38 ≈ FLT_MAX */
+/* float32 exp overflow boundary: exp(88) ~ 1.65e38 ~ FLT_MAX */
 #define FE_EXP_OVERFLOW  88.0f
 
-/* 1/ln(2) — exp近似の底変換に使用 */
+/* 1/ln(2) — used for base conversion in exp approximation */
 #define FE_LOG2E         1.4426950408889634f
 
 /*
- * f32x4_fast_exp: 4要素同時の高速exp近似
- * 4次Remezミニマックス多項式 + IEEE 754指数部操作
- * 相対誤差 < 2e-5 in [-10,10]、[-88,88]でクランプ
+ * f32x4_fast_exp: Fast exp approximation for 4 elements simultaneously
+ * 4th-order Remez minimax polynomial + IEEE 754 exponent field manipulation
+ * Relative error < 2e-5 in [-10,10], clamped to [-88,88]
  */
 #ifdef __wasm_simd128__
 
@@ -273,16 +273,16 @@ static inline f32x4 f32x4_fast_exp(f32x4 x) {
 
 /*
  * f32x4_fast_sigmoid: 1 / (1 + exp(-x))
- * 飽和域クランプ: x>=16→1, x<=-16→0
+ * Saturation clamping: x>=16 -> 1, x<=-16 -> 0
  */
 static inline f32x4 f32x4_fast_sigmoid(f32x4 x) {
     f32x4 e = f32x4_fast_exp(f32x4_neg(x));
-    /* SIMD除算命令がないため要素ごとにスカラー除算 */
+    /* No SIMD division instruction available, so scalar division per element */
     float r0 = 1.0f / (1.0f + f32x4_extract0(e));
     float r1 = 1.0f / (1.0f + f32x4_extract1(e));
     float r2 = 1.0f / (1.0f + f32x4_extract2(e));
     float r3 = 1.0f / (1.0f + f32x4_extract3(e));
-    /* 飽和域クランプ */
+    /* Saturation clamping */
     float x0 = f32x4_extract0(x), x1 = f32x4_extract1(x);
     float x2 = f32x4_extract2(x), x3 = f32x4_extract3(x);
     if (x0 >= FE_SIGMOID_CLAMP) r0 = 1.0f; else if (x0 <= -FE_SIGMOID_CLAMP) r0 = 0.0f;
@@ -290,7 +290,7 @@ static inline f32x4 f32x4_fast_sigmoid(f32x4 x) {
     if (x2 >= FE_SIGMOID_CLAMP) r2 = 1.0f; else if (x2 <= -FE_SIGMOID_CLAMP) r2 = 0.0f;
     if (x3 >= FE_SIGMOID_CLAMP) r3 = 1.0f; else if (x3 <= -FE_SIGMOID_CLAMP) r3 = 0.0f;
     f32x4 rv = f32x4_splat(0.0f);
-    /* 各要素設定 */
+    /* Set each element */
 #ifdef __wasm_simd128__
     rv = wasm_f32x4_replace_lane(rv, 0, r0);
     rv = wasm_f32x4_replace_lane(rv, 1, r1);
@@ -313,7 +313,7 @@ static inline f32x4 f32x4_fast_tanh(f32x4 x) {
     return f32x4_sub(f32x4_add(sig, sig), f32x4_splat(1.0f));
 }
 
-/* スカラー高速exp近似（f32x4_fast_expと同じアルゴリズム） */
+/* Scalar fast exp approximation (same algorithm as f32x4_fast_exp) */
 static inline float fe_fast_expf(float x) {
     if (x < -FE_EXP_OVERFLOW) return 0.0f;
     if (x >  FE_EXP_OVERFLOW) return fe_inf_val();
@@ -326,7 +326,7 @@ static inline float fe_fast_expf(float x) {
     return p * u.fv;
 }
 
-/* SIMDベクトル加算: dst[i] += src[i] */
+/* SIMD vector addition: dst[i] += src[i] */
 static inline void fe_vec_add(float* dst, const float* src, int n) {
     const int n4 = n & ~3;
     for (int i = 0; i < n4; i += 4) {

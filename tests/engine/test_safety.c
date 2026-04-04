@@ -1,12 +1,12 @@
 /*
- * test_safety.c — E1-E7 安全性テスト (GPT-5.4レビュー指摘対応)
+ * test_safety.c — E1-E7 Safety Tests (GPT-5.4 Review Findings)
  *
- * E1: GRU hidden_size上限検証
- * E3: compression n<=0 防御
- * E4: GRU reset size<=0 防御
- * E5: attention パラメータ整合性検証
- * E6: softmax NaN/Inf 防御
- * E7: setup_weights 終端検証 (間接)
+ * E1: GRU hidden_size upper limit validation
+ * E3: compression n<=0 guard
+ * E4: GRU reset size<=0 guard
+ * E5: attention parameter consistency validation
+ * E6: softmax NaN/Inf guard
+ * E7: setup_weights termination validation (indirect)
  */
 
 #include "unity.h"
@@ -23,7 +23,7 @@
 void setUp(void) {}
 void tearDown(void) {}
 
-/* ---- E1: GRU hidden_size 上限チェック ---- */
+/* ---- E1: GRU hidden_size upper limit check ---- */
 
 void test_gru_step_rejects_oversized_hidden(void) {
     float dummy_weights[512];
@@ -85,7 +85,7 @@ void test_gru_step_rejects_negative_hidden(void) {
 }
 
 void test_gru_step_accepts_max_hidden(void) {
-    /* FE_GRU_MAX_HIDDEN は受理されるべき */
+    /* FE_GRU_MAX_HIDDEN should be accepted */
     int hs = FE_GRU_MAX_HIDDEN;
     int is = hs;
     int mat_sz = hs * is;
@@ -121,7 +121,7 @@ void test_gru_step_accepts_max_hidden(void) {
     free(hidden);
 }
 
-/* ---- E3: compression n<=0 防御 ---- */
+/* ---- E3: compression n<=0 guard ---- */
 
 void test_compress_rejects_negative_n(void) {
     float in[4] = {1.0f, 2.0f, 3.0f, 4.0f};
@@ -160,7 +160,7 @@ void test_decompress_complex_rejects_negative_n(void) {
     TEST_ASSERT_EQUAL_FLOAT(99.0f, out_im[0]);
 }
 
-/* ---- E4: GRU reset size<=0 防御 ---- */
+/* ---- E4: GRU reset size<=0 guard ---- */
 
 void test_gru_reset_rejects_zero_size(void) {
     float hidden[4] = {1.0f, 2.0f, 3.0f, 4.0f};
@@ -176,7 +176,7 @@ void test_gru_reset_rejects_negative_size(void) {
     TEST_ASSERT_EQUAL_FLOAT(4.0f, hidden[3]);
 }
 
-/* ---- E5: attention パラメータ整合性 ---- */
+/* ---- E5: attention parameter consistency ---- */
 
 void test_mhsa_rejects_inconsistent_c2(void) {
     float dummy[256];
@@ -247,7 +247,7 @@ void test_mhsa_rejects_negative_seq_len(void) {
     TEST_ASSERT_EQUAL_FLOAT(99.0f, output[0]);
 }
 
-/* ---- E6: softmax NaN/Inf 防御 ---- */
+/* ---- E6: softmax NaN/Inf guard ---- */
 
 void test_softmax_handles_nan_input(void) {
     float input[4] = {1.0f, NAN, 2.0f, 0.5f};
@@ -307,7 +307,7 @@ void test_softmax_handles_all_neg_inf(void) {
     }
 }
 
-/* ---- E7: setup_weights 終端検証 (間接) ---- */
+/* ---- E7: setup_weights termination validation (indirect) ---- */
 
 void test_weight_count_matches_config(void) {
     TEST_ASSERT_EQUAL_INT(FE_TOTAL_WEIGHTS, fe_weight_count(FE_MODEL_TINY));

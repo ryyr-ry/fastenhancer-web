@@ -1,10 +1,10 @@
 /*
- * activations.c — 活性化関数の実装
+ * activations.c — Implementation of activation functions
  *
- * sigmoid: expf()ベースの正確な実装 (NaN/Inf安全)
+ * sigmoid: Accurate implementation based on expf() (NaN/Inf safe)
  * SiLU: x * sigmoid(x)
  *
- * SIMD最適化: 多項式exp近似を使用したバッチ版
+ * SIMD optimization: Batch versions using polynomial exp approximation
  */
 
 #include "activations.h"
@@ -12,7 +12,7 @@
 #include <math.h>
 #include <stdint.h>
 
-/* -ffast-math でも正しく動作するビット操作ベースの NaN/Inf チェック */
+/* Bit-manipulation-based NaN/Inf check that works correctly even with -ffast-math */
 static inline int fe_act_is_finite(float x) {
     union { float f; uint32_t u; } conv;
     conv.f = x;
@@ -27,7 +27,7 @@ static inline int fe_act_is_nan(float x) {
     return (exp_bits == 0x7F800000u) && (frac_bits != 0);
 }
 
-/* ビット操作で符号判定（-ffast-math安全） */
+/* Sign check via bit manipulation (-ffast-math safe) */
 static inline int fe_act_is_negative(float x) {
     union { float f; uint32_t u; } conv;
     conv.f = x;
@@ -36,7 +36,7 @@ static inline int fe_act_is_negative(float x) {
 
 /*
  * sigmoid(x) = 1 / (1 + exp(-x))
- * 数値安全: x >= 0 のとき 1/(1+exp(-x))、x < 0 のとき exp(x)/(1+exp(x))
+ * Numerically safe: 1/(1+exp(-x)) when x >= 0, exp(x)/(1+exp(x)) when x < 0
  */
 float fe_sigmoid(float x) {
     if (fe_act_is_nan(x)) return 0.5f;
@@ -82,8 +82,8 @@ void fe_silu_batch(const float* input, float* output, int n) {
     for (int i = n4; i < n; i++) {
         output[i] = fe_silu(input[i]);
     }
-    /* SIMD fast pathはNaN/Inf入力を扱えないため、
-       該当要素のみスカラーfe_silu()で再計算する */
+    /* The SIMD fast path cannot handle NaN/Inf inputs,
+       so recompute only affected elements with scalar fe_silu() */
     for (int i = 0; i < n4; i++) {
         if (fe_act_is_nan(input[i]) || !fe_act_is_finite(input[i])) {
             output[i] = fe_silu(input[i]);

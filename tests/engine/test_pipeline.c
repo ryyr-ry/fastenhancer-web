@@ -1,10 +1,10 @@
 /*
- * test_pipeline.c — Phase 3B-D: HPF/AGC前処理パイプライン テスト
+ * test_pipeline.c — Phase 3B-D: HPF/AGC Preprocessing Pipeline Tests
  *
- * HPF: 2次Butterworth高域通過フィルタ (80Hz @ 48kHz)
- * AGC: RMSベース自動ゲイン制御
+ * HPF: 2nd-order Butterworth high-pass filter (80Hz @ 48kHz)
+ * AGC: RMS-based automatic gain control
  *
- * コンパイル:
+ * Compile:
  *   gcc -I tests/engine/unity -I src/engine -I src/engine/common \
  *       -I src/engine/configs \
  *       tests/engine/unity/unity.c tests/engine/test_pipeline.c \
@@ -26,23 +26,23 @@ void setUp(void) {}
 void tearDown(void) {}
 
 /* ============================================================
- * HPF テスト
+ * HPF Tests
  * ============================================================ */
 
-/* DC成分(定数入力)が除去されること */
+/* Verify that DC component (constant input) is removed */
 void test_hpf_removes_dc(void) {
     FeHpfState hpf;
     fe_hpf_init(&hpf);
 
     float buf[FRAME_LEN];
 
-    /* 20フレーム分処理してフィルタを安定させる */
+    /* Process 20 frames to let the filter settle */
     for (int f = 0; f < 20; f++) {
         for (int i = 0; i < FRAME_LEN; i++) buf[i] = 0.5f;
         fe_hpf_process(&hpf, buf, FRAME_LEN);
     }
 
-    /* 安定後: DC成分はほぼ完全に除去されるはず */
+    /* After settling: DC component should be almost completely removed */
     float max_abs = 0.0f;
     for (int i = 0; i < FRAME_LEN; i++) {
         float a = fabsf(buf[i]);
@@ -51,7 +51,7 @@ void test_hpf_removes_dc(void) {
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, max_abs);
 }
 
-/* 高周波正弦波(5kHz)がほぼそのまま通過すること */
+/* Verify that a high-frequency sine wave (5kHz) passes through nearly unchanged */
 void test_hpf_passes_high_freq(void) {
     FeHpfState hpf;
     fe_hpf_init(&hpf);
@@ -59,7 +59,7 @@ void test_hpf_passes_high_freq(void) {
     float buf[FRAME_LEN];
     float ref[FRAME_LEN];
 
-    /* 20フレームで安定化 */
+    /* Stabilize over 20 frames */
     for (int f = 0; f < 20; f++) {
         for (int i = 0; i < FRAME_LEN; i++) {
             int sample = f * FRAME_LEN + i;
@@ -68,7 +68,7 @@ void test_hpf_passes_high_freq(void) {
         fe_hpf_process(&hpf, buf, FRAME_LEN);
     }
 
-    /* 次のフレーム: 入力と出力のエネルギー比を計算 */
+    /* Next frame: compute energy ratio between input and output */
     float energy_in = 0.0f, energy_out = 0.0f;
     for (int i = 0; i < FRAME_LEN; i++) {
         int sample = 20 * FRAME_LEN + i;
@@ -80,18 +80,18 @@ void test_hpf_passes_high_freq(void) {
     for (int i = 0; i < FRAME_LEN; i++) energy_out += buf[i] * buf[i];
 
     float gain_db = 10.0f * log10f(energy_out / energy_in);
-    /* 5kHzは80Hzカットオフのはるか上 → ゲインは-0.5dB以内 */
+    /* 5kHz is far above the 80Hz cutoff -> gain should be within -0.5dB */
     TEST_ASSERT_FLOAT_WITHIN(0.5f, 0.0f, gain_db);
 }
 
-/* 低周波正弦波(20Hz)が大幅に減衰すること */
+/* Verify that a low-frequency sine wave (20Hz) is significantly attenuated */
 void test_hpf_attenuates_low_freq(void) {
     FeHpfState hpf;
     fe_hpf_init(&hpf);
 
     float buf[FRAME_LEN];
 
-    /* 50フレームで安定化 (20Hz = 長い周期なので多めに) */
+    /* Stabilize over 50 frames (more needed since 20Hz has a long period) */
     for (int f = 0; f < 50; f++) {
         for (int i = 0; i < FRAME_LEN; i++) {
             int sample = f * FRAME_LEN + i;
@@ -100,7 +100,7 @@ void test_hpf_attenuates_low_freq(void) {
         fe_hpf_process(&hpf, buf, FRAME_LEN);
     }
 
-    /* 計測フレーム */
+    /* Measurement frame */
     float energy_in = 0.0f, energy_out = 0.0f;
     float ref[FRAME_LEN];
     for (int i = 0; i < FRAME_LEN; i++) {
@@ -112,13 +112,13 @@ void test_hpf_attenuates_low_freq(void) {
     fe_hpf_process(&hpf, buf, FRAME_LEN);
     for (int i = 0; i < FRAME_LEN; i++) energy_out += buf[i] * buf[i];
 
-    /* 20Hzは80Hzカットオフの下 → -12dB以上減衰 (2次フィルタ) */
+    /* 20Hz is below the 80Hz cutoff -> at least -12dB attenuation (2nd-order filter) */
     float gain_db = 10.0f * log10f((energy_out + 1e-20f) / (energy_in + 1e-20f));
     TEST_ASSERT_TRUE_MESSAGE(gain_db < -12.0f,
-        "20Hzが十分に減衰されていない (2次ButterworthでHPF 80Hz)");
+        "20Hz not sufficiently attenuated (2nd-order Butterworth HPF 80Hz)");
 }
 
-/* リセット後に初期状態に戻ること */
+/* Verify that state returns to initial conditions after reset */
 void test_hpf_reset(void) {
     FeHpfState hpf;
     fe_hpf_init(&hpf);
@@ -137,7 +137,7 @@ void test_hpf_reset(void) {
     TEST_ASSERT_FLOAT_WITHIN(1e-7f, first_out, buf[0]);
 }
 
-/* 1000フレーム処理してNaN/Infが出ないこと */
+/* Verify that no NaN/Inf values appear after processing 1000 frames */
 void test_hpf_stability(void) {
     FeHpfState hpf;
     fe_hpf_init(&hpf);
@@ -156,10 +156,10 @@ void test_hpf_stability(void) {
 }
 
 /* ============================================================
- * AGC テスト
+ * AGC Tests
  * ============================================================ */
 
-/* 静かな信号が増幅されること */
+/* Verify that a quiet signal is amplified */
 void test_agc_amplifies_quiet(void) {
     FeAgcState agc;
     fe_agc_init(&agc);
@@ -167,7 +167,7 @@ void test_agc_amplifies_quiet(void) {
     float buf[FRAME_LEN];
     float input_rms = 0.01f;
 
-    /* 30フレーム処理してAGCを安定させる */
+    /* Process 30 frames to let the AGC settle */
     for (int f = 0; f < 30; f++) {
         for (int i = 0; i < FRAME_LEN; i++) {
             buf[i] = input_rms * sinf(2.0f * PI_F * 1000.0f * (f * FRAME_LEN + i) / 48000.0f);
@@ -175,17 +175,17 @@ void test_agc_amplifies_quiet(void) {
         fe_agc_process(&agc, buf, FRAME_LEN);
     }
 
-    /* 出力RMSを計測 */
+    /* Measure the output RMS */
     float rms = 0.0f;
     for (int i = 0; i < FRAME_LEN; i++) rms += buf[i] * buf[i];
     rms = sqrtf(rms / FRAME_LEN);
 
-    /* 入力RMS(~0.007) より大きくなっているはず */
+    /* Output should be greater than the input RMS (~0.007) */
     TEST_ASSERT_TRUE_MESSAGE(rms > input_rms * 1.5f,
-        "AGCが静かな信号を増幅していない");
+        "AGC did not amplify quiet signal");
 }
 
-/* 大きな信号が減衰されること */
+/* Verify that a loud signal is attenuated */
 void test_agc_attenuates_loud(void) {
     FeAgcState agc;
     fe_agc_init(&agc);
@@ -206,10 +206,10 @@ void test_agc_attenuates_loud(void) {
 
     float input_rms = amp / sqrtf(2.0f);
     TEST_ASSERT_TRUE_MESSAGE(rms < input_rms * 0.7f,
-        "AGCが大きな信号を減衰していない");
+        "AGC did not attenuate loud signal");
 }
 
-/* 無音入力でゲインが無限大にならないこと */
+/* Verify that gain does not become infinite on silent input */
 void test_agc_silence_safe(void) {
     FeAgcState agc;
     fe_agc_init(&agc);
@@ -227,7 +227,7 @@ void test_agc_silence_safe(void) {
     }
 }
 
-/* リセット後に初期状態に戻ること */
+/* Verify that state returns to initial conditions after reset */
 void test_agc_reset(void) {
     FeAgcState agc;
     fe_agc_init(&agc);
@@ -240,7 +240,7 @@ void test_agc_reset(void) {
 
     fe_agc_process(&agc, buf1, FRAME_LEN);
 
-    /* 数フレーム処理してリセット */
+    /* Process several frames then reset */
     float tmp[FRAME_LEN];
     for (int f = 0; f < 10; f++) {
         for (int i = 0; i < FRAME_LEN; i++)
@@ -256,7 +256,7 @@ void test_agc_reset(void) {
     }
 }
 
-/* 1000フレーム安定性 */
+/* 1000-frame stability */
 void test_agc_stability(void) {
     FeAgcState agc;
     fe_agc_init(&agc);
@@ -276,14 +276,14 @@ void test_agc_stability(void) {
 }
 
 /* ============================================================
- * 統合テスト: HPF→AGC→推論パイプラインの有効/無効切替
- * (fastenhancer.hのfe_set_hpf/fe_set_agcを使用)
+ * Integration Tests: HPF -> AGC -> Inference Pipeline Enable/Disable Toggling
+ * (using fe_set_hpf/fe_set_agc from fastenhancer.h)
  * ============================================================ */
 
 #include "fastenhancer.h"
 #include "tiny_48k.h"
 
-/* テスト用のランダム重みヘルパー (test_inference.cと同様) */
+/* Random weight helper for tests (same as test_inference.c) */
 static float lcg_float(unsigned int* seed) {
     *seed = *seed * 1103515245u + 12345u;
     return ((float)((*seed >> 16) & 0x7fff) / 32768.0f - 0.5f) * 0.02f;
@@ -336,19 +336,19 @@ static FeState* create_state_for_pipeline(void) {
     return state;
 }
 
-/* HPFデフォルト無効: 有効/無効で出力が変わること */
+/* HPF disabled by default: output should differ between enabled and disabled */
 void test_integration_hpf_changes_output(void) {
     float dc_input[FRAME_LEN];
     for (int i = 0; i < FRAME_LEN; i++) dc_input[i] = 0.5f;
 
     float out_no_hpf[FRAME_LEN], out_hpf[FRAME_LEN];
 
-    /* HPF無効 */
+    /* HPF disabled */
     FeState* s1 = create_state_for_pipeline();
     fe_process_frame(s1, dc_input, out_no_hpf);
     fe_destroy(s1);
 
-    /* HPF有効 */
+    /* HPF enabled */
     FeState* s2 = create_state_for_pipeline();
     fe_set_hpf(s2, 1);
     fe_process_frame(s2, dc_input, out_hpf);
@@ -359,10 +359,10 @@ void test_integration_hpf_changes_output(void) {
         if (fabsf(out_no_hpf[i] - out_hpf[i]) > 1e-8f) differ++;
     }
     TEST_ASSERT_MESSAGE(differ > 0,
-        "HPF有効/無効で出力が変わらない: HPFがパイプラインに接続されていない");
+        "Output unchanged with HPF enabled/disabled: HPF is not connected to the pipeline");
 }
 
-/* AGCデフォルト無効: 有効/無効で出力が変わること */
+/* AGC disabled by default: output should differ between enabled and disabled */
 void test_integration_agc_changes_output(void) {
     float input[FRAME_LEN];
     for (int i = 0; i < FRAME_LEN; i++) {
@@ -389,10 +389,10 @@ void test_integration_agc_changes_output(void) {
         if (fabsf(out_no_agc[i] - out_agc[i]) > 1e-8f) differ++;
     }
     TEST_ASSERT_MESSAGE(differ > 0,
-        "AGC有効/無効で出力が変わらない: AGCがパイプラインに接続されていない");
+        "Output unchanged with AGC enabled/disabled: AGC is not connected to the pipeline");
 }
 
-/* デフォルトでHPF/AGCが無効であること */
+/* Verify that HPF/AGC are disabled by default */
 void test_integration_default_disabled(void) {
     float input[FRAME_LEN];
     for (int i = 0; i < FRAME_LEN; i++) {
@@ -419,21 +419,21 @@ void test_integration_default_disabled(void) {
 int main(void) {
     UNITY_BEGIN();
 
-    /* HPF単体テスト */
+    /* HPF unit tests */
     RUN_TEST(test_hpf_removes_dc);
     RUN_TEST(test_hpf_passes_high_freq);
     RUN_TEST(test_hpf_attenuates_low_freq);
     RUN_TEST(test_hpf_reset);
     RUN_TEST(test_hpf_stability);
 
-    /* AGC単体テスト */
+    /* AGC unit tests */
     RUN_TEST(test_agc_amplifies_quiet);
     RUN_TEST(test_agc_attenuates_loud);
     RUN_TEST(test_agc_silence_safe);
     RUN_TEST(test_agc_reset);
     RUN_TEST(test_agc_stability);
 
-    /* 統合テスト */
+    /* Integration tests */
     RUN_TEST(test_integration_hpf_changes_output);
     RUN_TEST(test_integration_agc_changes_output);
     RUN_TEST(test_integration_default_disabled);

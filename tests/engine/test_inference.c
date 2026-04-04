@@ -1,11 +1,11 @@
 /*
- * test_inference.c — Phase 3B-C: 推論パイプライン テスト
+ * test_inference.c — Phase 3B-C: Inference Pipeline Tests
  *
- * ランダム非ゼロ重み（BNスケール=1.0）を使用し、パイプラインの配線が
- * 正しく接続されていることを検証する。ゼロ重みでは全てゼロが通過して
- * しまい配線ミスを検出できないため、意味のあるテストにならない。
+ * Uses random non-zero weights (BN scale=1.0) to verify that the pipeline
+ * wiring is correctly connected. With zero weights, all zeros pass through
+ * and wiring errors cannot be detected, making the test meaningless.
  *
- * コンパイル:
+ * Compile:
  *   gcc -I tests/engine/unity -I src/engine/common -I src/engine/configs \
  *       -I src/engine tests/engine/unity/unity.c tests/engine/test_inference.c \
  *       src/engine/fastenhancer.c \
@@ -25,14 +25,14 @@
 
 #define PI_F 3.14159265f
 
-/* 決定論的擬似乱数 (LCG) */
+/* Deterministic pseudo-random number generator (LCG) */
 static float lcg_float(unsigned int* seed) {
     *seed = *seed * 1103515245u + 12345u;
     return ((float)((*seed >> 16) & 0x7fff) / 32768.0f - 0.5f) * 0.02f;
 }
 
-/* BNスケール=1.0, BNバイアス=0.0 に上書きする。
- * 重みバッファのレイアウトはsetup_weights()と完全一致が必要。 */
+/* Overwrite BN scale=1.0, BN bias=0.0.
+ * The weight buffer layout must exactly match setup_weights(). */
 static void fix_bn_scales(float* w) {
     int p = 0;
 
@@ -54,7 +54,7 @@ static void fix_bn_scales(float* w) {
     for (int i = 0; i < FE_C2; i++) w[p + i] = 1.0f; p += FE_C2;
     for (int i = 0; i < FE_C2; i++) w[p + i] = 0.0f; p += FE_C2;
 
-    /* RNNFormer Blocks (BNなし — GRU/FC/PE/MHSA) */
+    /* RNNFormer Blocks (no BN — GRU/FC/PE/MHSA) */
     for (int b = 0; b < FE_RF_BLOCKS; b++) {
         p += FE_W_GRU + FE_W_GRU_FC;
         if (b == 0) p += FE_W_PE;
@@ -85,7 +85,7 @@ static void fix_bn_scales(float* w) {
     for (int i = 0; i < FE_C1; i++) w[p + i] = 0.0f; p += FE_C1;
 }
 
-/* ランダム非ゼロ重み（BNスケール修正済み）のFeStateを生成 */
+/* Create FeState with random non-zero weights (BN scale corrected) */
 static FeState* create_random_state(unsigned int seed) {
     int n = fe_weight_count(FE_MODEL_TINY);
     float* w = (float*)malloc(n * sizeof(float));
@@ -97,7 +97,7 @@ static FeState* create_random_state(unsigned int seed) {
     return state;
 }
 
-/* ゼロ重みのFeState */
+/* FeState with zero weights */
 static FeState* create_zero_state(void) {
     int n = fe_weight_count(FE_MODEL_TINY);
     float* w = (float*)calloc(n, sizeof(float));
@@ -106,7 +106,7 @@ static FeState* create_zero_state(void) {
     return state;
 }
 
-/* 正弦波入力を生成 */
+/* Generate sine wave input */
 static void gen_sine(float* buf, int len, float freq, float amp) {
     for (int i = 0; i < len; i++) {
         buf[i] = amp * sinf(2.0f * PI_F * freq * (float)i / 48000.0f);
@@ -116,7 +116,7 @@ static void gen_sine(float* buf, int len, float freq, float amp) {
 void setUp(void) {}
 void tearDown(void) {}
 
-/* ======== ライフサイクルテスト ======== */
+/* ======== Lifecycle Tests ======== */
 
 void test_fe_create_destroy(void) {
     FeState* state = create_random_state(42);
@@ -140,7 +140,7 @@ void test_fe_get_hop_size(void) {
     fe_destroy(state);
 }
 
-/* ======== 配線検証: 非ゼロ重み → 非ゼロ出力 ======== */
+/* ======== Wiring Verification: Non-zero Weights -> Non-zero Output ======== */
 
 void test_nonzero_weights_produce_nonzero_output(void) {
     FeState* state = create_random_state(42);
@@ -156,12 +156,12 @@ void test_nonzero_weights_produce_nonzero_output(void) {
         if (fabsf(output[i]) > 1e-10f) nonzero++;
     }
     TEST_ASSERT_MESSAGE(nonzero > 0,
-        "非ゼロ重み+非ゼロ入力なのに全出力がゼロ: パイプライン断線の可能性");
+        "All outputs are zero despite non-zero weights + non-zero input: possible pipeline disconnection");
 
     fe_destroy(state);
 }
 
-/* ======== 入力依存性: 異なる入力 → 異なる出力 ======== */
+/* ======== Input Dependency: Different Inputs -> Different Outputs ======== */
 
 void test_different_inputs_different_outputs(void) {
     FeState* s1 = create_random_state(42);
@@ -179,13 +179,13 @@ void test_different_inputs_different_outputs(void) {
         if (fabsf(out_a[i] - out_b[i]) > 1e-8f) differ++;
     }
     TEST_ASSERT_MESSAGE(differ > 0,
-        "異なる入力なのに同一出力: モデルが入力を無視している");
+        "Identical output despite different inputs: model is ignoring the input");
 
     fe_destroy(s1);
     fe_destroy(s2);
 }
 
-/* ======== 重み依存性: 異なる重み → 異なる出力 ======== */
+/* ======== Weight Dependency: Different Weights -> Different Outputs ======== */
 
 void test_different_weights_different_outputs(void) {
     FeState* s1 = create_random_state(42);
@@ -202,13 +202,13 @@ void test_different_weights_different_outputs(void) {
         if (fabsf(out_a[i] - out_b[i]) > 1e-8f) differ++;
     }
     TEST_ASSERT_MESSAGE(differ > 0,
-        "異なる重みなのに同一出力: 重みがパイプラインに接続されていない");
+        "Identical output despite different weights: weights are not connected to the pipeline");
 
     fe_destroy(s1);
     fe_destroy(s2);
 }
 
-/* ======== GRU状態蓄積: 同一入力でも2フレーム目は異なる ======== */
+/* ======== GRU State Accumulation: Second Frame Differs Even with Same Input ======== */
 
 void test_gru_state_accumulates_across_frames(void) {
     FeState* state = create_random_state(42);
@@ -224,12 +224,12 @@ void test_gru_state_accumulates_across_frames(void) {
         if (fabsf(out1[i] - out2[i]) > 1e-8f) differ++;
     }
     TEST_ASSERT_MESSAGE(differ > 0,
-        "2フレーム目が1フレーム目と完全一致: GRU隠れ状態が蓄積されていない");
+        "Second frame exactly matches the first: GRU hidden state is not accumulating");
 
     fe_destroy(state);
 }
 
-/* ======== リセット: 状態を元に戻す ======== */
+/* ======== Reset: Restore to Initial State ======== */
 
 void test_reset_restores_initial_state(void) {
     FeState* state = create_random_state(42);
@@ -250,7 +250,7 @@ void test_reset_restores_initial_state(void) {
     fe_destroy(state);
 }
 
-/* ======== 決定性: 同一重み+入力 → 同一出力 ======== */
+/* ======== Determinism: Same Weights + Input -> Same Output ======== */
 
 void test_deterministic_same_weights_same_input(void) {
     float input[512], out_a[512], out_b[512];
@@ -269,7 +269,7 @@ void test_deterministic_same_weights_same_input(void) {
     }
 }
 
-/* ======== 100フレーム数値安定性 ======== */
+/* ======== 100-Frame Numerical Stability ======== */
 
 void test_100_frames_numerically_stable(void) {
     FeState* state = create_random_state(42);
@@ -281,16 +281,16 @@ void test_100_frames_numerically_stable(void) {
 
         for (int i = 0; i < 512; i++) {
             TEST_ASSERT_FALSE_MESSAGE(isnan(output[i]),
-                "NaN検出: 100フレーム以内に数値爆発");
+                "NaN detected: numerical explosion within 100 frames");
             TEST_ASSERT_FALSE_MESSAGE(isinf(output[i]),
-                "Inf検出: 100フレーム以内に数値爆発");
+                "Inf detected: numerical explosion within 100 frames");
         }
     }
 
     fe_destroy(state);
 }
 
-/* ======== インスタンス独立性 ======== */
+/* ======== Instance Independence ======== */
 
 void test_instances_independent(void) {
     FeState* s1 = create_random_state(42);
@@ -303,19 +303,19 @@ void test_instances_independent(void) {
     fe_process_frame(s1, sine, out_sine);
     fe_process_frame(s2, zero, out_zero);
 
-    /* s1は非ゼロ入力→非ゼロ出力、s2はゼロ入力 */
+    /* s1 has non-zero input -> non-zero output, s2 has zero input */
     int differ = 0;
     for (int i = 0; i < 512; i++) {
         if (fabsf(out_sine[i] - out_zero[i]) > 1e-8f) differ++;
     }
     TEST_ASSERT_MESSAGE(differ > 0,
-        "異なるインスタンスに異なる入力を与えたのに同一出力: メモリ共有の疑い");
+        "Identical output despite feeding different inputs to different instances: suspected memory sharing");
 
     fe_destroy(s1);
     fe_destroy(s2);
 }
 
-/* ======== ゼロ重み+ゼロ入力 → ゼロ出力 (エッジケース) ======== */
+/* ======== Zero Weights + Zero Input -> Zero Output (Edge Case) ======== */
 
 void test_zero_weights_zero_input_gives_zero(void) {
     FeState* state = create_zero_state();
@@ -333,27 +333,27 @@ void test_zero_weights_zero_input_gives_zero(void) {
 int main(void) {
     UNITY_BEGIN();
 
-    /* ライフサイクル */
+    /* Lifecycle */
     RUN_TEST(test_fe_create_destroy);
     RUN_TEST(test_fe_create_null_on_invalid_model);
     RUN_TEST(test_fe_create_null_on_wrong_weight_count);
     RUN_TEST(test_fe_get_hop_size);
 
-    /* パイプライン配線検証 (ランダム非ゼロ重み) */
+    /* Pipeline wiring verification (random non-zero weights) */
     RUN_TEST(test_nonzero_weights_produce_nonzero_output);
     RUN_TEST(test_different_inputs_different_outputs);
     RUN_TEST(test_different_weights_different_outputs);
     RUN_TEST(test_gru_state_accumulates_across_frames);
 
-    /* 状態管理 */
+    /* State management */
     RUN_TEST(test_reset_restores_initial_state);
     RUN_TEST(test_deterministic_same_weights_same_input);
 
-    /* 安定性 */
+    /* Stability */
     RUN_TEST(test_100_frames_numerically_stable);
     RUN_TEST(test_instances_independent);
 
-    /* エッジケース */
+    /* Edge cases */
     RUN_TEST(test_zero_weights_zero_input_gives_zero);
 
     return UNITY_END();

@@ -1,5 +1,5 @@
 /*
- * benchmark_stats.h — ベンチマーク統計ヘルパー
+ * benchmark_stats.h — Benchmark statistics helper
  */
 
 #ifndef FE_BENCHMARK_STATS_H

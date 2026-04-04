@@ -1,18 +1,18 @@
 /*
- * weight_format.h — 重みバイナリフォーマット定義
+ * weight_format.h — Weight binary format definition
  *
- * バイナリレイアウト:
- *   [0..3]   マジック "FEW1" (4 bytes)
- *   [4..7]   バージョン uint32_t LE (現在=1)
- *   [8..11]  モデルサイズ uint32_t LE (0=Tiny, 1=Base, 2=Small)
- *   [12..15] 重み数 uint32_t LE (float32要素数)
- *   [16..19] CRC32 uint32_t LE (float32データ部のみ対象)
- *   [20..]   float32 LE × 重み数
+ * Binary layout:
+ *   [0..3]   Magic "FEW1" (4 bytes)
+ *   [4..7]   Version uint32_t LE (currently=1)
+ *   [8..11]  Model size uint32_t LE (0=Tiny, 1=Base, 2=Small)
+ *   [12..15] Weight count uint32_t LE (number of float32 elements)
+ *   [16..19] CRC32 uint32_t LE (computed over float32 data section only)
+ *   [20..]   float32 LE x weight count
  *
- * ヘッダサイズ: 20 bytes
- * 重みデータはfloat32リトルエンディアン。
- * fe_init() は payload を little-endian バイト列として明示的に復号する。
- * CRC32はfloat32データ部(ヘッダ除外)に対して計算。
+ * Header size: 20 bytes
+ * Weight data is float32 little-endian.
+ * fe_init() explicitly decodes the payload as little-endian byte sequence.
+ * CRC32 is computed over the float32 data section (excluding header).
  */
 
 #ifndef FE_WEIGHT_FORMAT_H

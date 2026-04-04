@@ -1,14 +1,14 @@
 /*
- * test_attention.c — Phase 2-F: MHSAテスト (TDD Red)
+ * test_attention.c — Phase 2-F: MHSA test (TDD Red)
  *
- * 検証対象:
+ * Test targets:
  *   - Multi-Head Self-Attention (n_heads=4)
- *   - head_dim=5 (Tiny) — 4の倍数でないためSIMDパディング
- *   - Q=K=V同一入力での自己注意
- *   - ゼロクエリ→出力が値コンテキストの重み付き和
- *   - softmax正規化
+ *   - head_dim=5 (Tiny) — Requires SIMD padding as it's not a multiple of 4
+ *   - Self-attention with identical Q=K=V input
+ *   - Zero query → output becomes weighted sum of value context
+ *   - Softmax normalization
  *
- * コンパイル:
+ * Compile:
  *   gcc -I tests/engine/unity -I src/engine/common \
  *       tests/engine/unity/unity.c tests/engine/test_attention.c \
  *       src/engine/common/attention.c src/engine/common/activations.c -o test_attention -lm
@@ -22,19 +22,19 @@
 void setUp(void) {}
 void tearDown(void) {}
 
-/* --- 基本テスト --- */
+/* --- Basic tests --- */
 
 void test_attention_output_finite(void) {
     /* Tiny: n_heads=4, head_dim=5, C2=20, freq=128 */
     int n_heads = 4;
     int head_dim = 5;
     int c2 = n_heads * head_dim;  /* =20 */
-    int seq_len = 8;  /* 短い系列で検証 */
+    int seq_len = 8;  /* Short sequence for verification */
 
     float input[8 * 20];
     for (int i = 0; i < seq_len * c2; i++) input[i] = 0.1f;
 
-    /* Q,K,V の重み: [C2 × C2] */
+    /* Q,K,V weights: [C2 × C2] */
     float W_q[20 * 20], W_k[20 * 20], W_v[20 * 20], W_o[20 * 20];
     float b_q[20] = {0}, b_k[20] = {0}, b_v[20] = {0}, b_o[20] = {0};
 
@@ -67,10 +67,10 @@ void test_attention_output_finite(void) {
     }
 }
 
-/* --- 均一入力テスト --- */
+/* --- Uniform input test --- */
 
 void test_attention_uniform_input(void) {
-    /* Q=K=V が全て同じ → 注意重みは均一 → 出力=入力 */
+    /* Q=K=V all the same → attention weights uniform → output=input */
     int n_heads = 4;
     int head_dim = 5;
     int c2 = 20;
@@ -82,7 +82,7 @@ void test_attention_uniform_input(void) {
     float W_q[400], W_k[400], W_v[400], W_o[400];
     float b_q[20] = {0}, b_k[20] = {0}, b_v[20] = {0}, b_o[20] = {0};
 
-    /* 単位行列 */
+    /* Identity matrix */
     memset(W_q, 0, sizeof(W_q));
     memset(W_k, 0, sizeof(W_k));
     memset(W_v, 0, sizeof(W_v));
@@ -110,15 +110,15 @@ void test_attention_uniform_input(void) {
 
     fe_mhsa(&weights, input, output, attn_buf, scratch, seq_len);
 
-    /* 均一入力 + 単位行列 → Q=K=V=input
-     * attention weight = softmax(Q·K^T/sqrt(d)) = 均一分布
-     * output = attention · V = 入力の平均 = 入力自身（全て同じなので） */
+    /* Uniform input + identity matrix → Q=K=V=input
+     * attention weight = softmax(Q·K^T/sqrt(d)) = uniform distribution
+     * output = attention · V = average of input = input itself (since all are the same) */
     for (int i = 0; i < seq_len * c2; i++) {
         TEST_ASSERT_FLOAT_WITHIN(0.1f, 1.0f, output[i]);
     }
 }
 
-/* --- ゼロ入力テスト --- */
+/* --- Zero input test --- */
 
 void test_attention_zero_input(void) {
     int n_heads = 4;
@@ -153,7 +153,7 @@ void test_attention_zero_input(void) {
     }
 }
 
-/* --- softmax 正規化テスト --- */
+/* --- softmax normalization test --- */
 
 void test_softmax_normalization(void) {
     float input[8] = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f};
@@ -182,7 +182,7 @@ void test_softmax_equal_inputs(void) {
 }
 
 void test_softmax_numerical_stability(void) {
-    /* 大きな値でオーバーフローしない (max subtraction trick) */
+    /* Large values don't overflow (max subtraction trick) */
     float input[4] = {1000.0f, 1001.0f, 1002.0f, 1003.0f};
     float output[4];
 
@@ -213,10 +213,10 @@ void test_softmax_extreme_values(void) {
     TEST_ASSERT_FLOAT_WITHIN(1e-4f, 1.0f, sum);
 }
 
-/* --- head_dim=5 (非4の倍数) テスト --- */
+/* --- head_dim=5 (not multiple of 4) test --- */
 
 void test_attention_head_dim_5_simd_alignment(void) {
-    /* head_dim=5はSIMD 4要素アラインでない。パディング処理が正しいか検証。 */
+    /* head_dim=5 is not SIMD 4-element aligned. Verify padding is handled correctly. */
     int n_heads = 4;
     int head_dim = 5;
     int c2 = 20;
@@ -262,17 +262,17 @@ void test_attention_head_dim_5_simd_alignment(void) {
         TEST_ASSERT_FALSE(isinf(output[i]));
     }
 
-    /* 恒等重み(W=I)の場合、出力はattention-weighted平均のV値に一致。
-     * 5番目の次元(index 4,9,14,19)が出力に正しく反映されることを数値検証。 */
+    /* For identity weights (W=I), output matches attention-weighted average of V values.
+     * Numerically verify that the 5th dimension (index 4,9,14,19) is correctly reflected in output. */
     for (int s = 0; s < seq_len; s++) {
         for (int d = 0; d < c2; d++) {
-            /* 恒等W+uniform attentionなら出力≒inputの列平均 */
+            /* Identity W + uniform attention means output ≈ column average of input */
             float col_avg = 0.0f;
             for (int t = 0; t < seq_len; t++) {
                 col_avg += input[t * c2 + d];
             }
             col_avg /= (float)seq_len;
-            /* softmaxが完全uniformではないため許容範囲をやや広めに */
+            /* Softmax is not perfectly uniform so allow somewhat wider tolerance */
             TEST_ASSERT_FLOAT_WITHIN(0.15f, col_avg, output[s * c2 + d]);
         }
     }

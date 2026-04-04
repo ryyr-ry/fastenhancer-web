@@ -1,11 +1,11 @@
 /*
- * test_simd_accuracy.c — SIMD最適化の数値精度検証
+ * test_simd_accuracy.c — Numerical accuracy verification of SIMD optimizations
  *
- * SIMD関数(fast_exp, fast_sigmoid, fast_tanh, matvec_add, softmax)が
- * 参照スカラー実装と十分に近い結果を返すことを検証する。
+ * Verifies that SIMD functions (fast_exp, fast_sigmoid, fast_tanh, matvec_add, softmax)
+ * return results sufficiently close to the reference scalar implementations.
  * 
- * さらに、フルパイプラインで1000フレーム処理し、
- * 出力の有界性・安定性・非退化を確認する。
+ * Additionally, processes 1000 frames through the full pipeline
+ * to confirm output boundedness, stability, and non-degeneracy.
  */
 
 #include "unity.h"
@@ -24,10 +24,10 @@
 void setUp(void) {}
 void tearDown(void) {}
 
-/* ======== 1. fast_expf 精度検証 ======== */
+/* ======== 1. fast_expf accuracy verification ======== */
 
 void test_fast_expf_vs_libm_over_range(void) {
-    /* [-20, 20] の範囲で 10001点を比較 */
+    /* Compare 10001 points over the range [-20, 20] */
     float max_abs_err = 0.0f;
     float max_rel_err = 0.0f;
     float worst_x = 0.0f;
@@ -48,7 +48,7 @@ void test_fast_expf_vs_libm_over_range(void) {
         }
     }
 
-    /* 相対誤差 < 0.1% を要求 */
+    /* Require relative error < 0.1% */
     char msg[256];
     snprintf(msg, sizeof(msg),
         "fe_fast_expf max_rel_err=%.6e at x=%.4f (abs=%.6e)",
@@ -56,7 +56,7 @@ void test_fast_expf_vs_libm_over_range(void) {
     TEST_ASSERT_TRUE_MESSAGE(max_rel_err < 1e-3f, msg);
 }
 
-/* ======== 2. f32x4_fast_exp 精度検証 (SSE2/WASM/scalar) ======== */
+/* ======== 2. f32x4_fast_exp accuracy verification (SSE2/WASM/scalar) ======== */
 
 void test_f32x4_fast_exp_vs_libm(void) {
     float max_rel_err = 0.0f;
@@ -85,7 +85,7 @@ void test_f32x4_fast_exp_vs_libm(void) {
     TEST_ASSERT_TRUE_MESSAGE(max_rel_err < 1e-3f, msg);
 }
 
-/* ======== 3. f32x4_fast_sigmoid 精度検証 ======== */
+/* ======== 3. f32x4_fast_sigmoid accuracy verification ======== */
 
 void test_f32x4_fast_sigmoid_vs_scalar(void) {
     float max_abs_err = 0.0f;
@@ -101,7 +101,7 @@ void test_f32x4_fast_sigmoid_vs_scalar(void) {
         f32x4_store(out_arr, r);
 
         for (int j = 0; j < 4; j++) {
-            /* 参照: libm sigmoid */
+            /* Reference: libm sigmoid */
             float ref = 1.0f / (1.0f + expf(-in_arr[j]));
             float err = fabsf(out_arr[j] - ref);
             if (err > max_abs_err) max_abs_err = err;
@@ -110,11 +110,11 @@ void test_f32x4_fast_sigmoid_vs_scalar(void) {
 
     char msg[128];
     snprintf(msg, sizeof(msg), "f32x4_fast_sigmoid max_abs_err=%.6e", max_abs_err);
-    /* sigmoid出力は[0,1]、絶対誤差 < 0.001 を要求 */
+    /* Sigmoid output is in [0,1]; require absolute error < 0.001 */
     TEST_ASSERT_TRUE_MESSAGE(max_abs_err < 1e-3f, msg);
 }
 
-/* ======== 4. fe_sigmoid_batch SIMD vs スカラー fe_sigmoid ======== */
+/* ======== 4. fe_sigmoid_batch SIMD vs scalar fe_sigmoid ======== */
 
 void test_sigmoid_batch_matches_scalar(void) {
     float max_err = 0.0f;
@@ -136,14 +136,14 @@ void test_sigmoid_batch_matches_scalar(void) {
 
     char msg[128];
     snprintf(msg, sizeof(msg), "sigmoid_batch vs scalar max_err=%.6e", max_err);
-    /* fast_sigmoid近似とfe_sigmoid(libm)の差は許容するが限定的 */
+    /* Tolerate the difference between fast_sigmoid approximation and fe_sigmoid (libm), but keep it bounded */
     TEST_ASSERT_TRUE_MESSAGE(max_err < 5e-3f, msg);
 
     free(input);
     free(batch_out);
 }
 
-/* ======== 5. fe_matvec_add 精度検証 (SIMD vs 参照スカラー) ======== */
+/* ======== 5. fe_matvec_add accuracy verification (SIMD vs reference scalar) ======== */
 
 void test_matvec_add_vs_scalar_reference(void) {
     int rows = 60, cols = 20;
@@ -152,7 +152,7 @@ void test_matvec_add_vs_scalar_reference(void) {
     float* out_simd = (float*)calloc(rows, sizeof(float));
     float* out_ref = (float*)calloc(rows, sizeof(float));
 
-    /* 決定論的データ */
+    /* Deterministic data */
     unsigned int seed = 12345;
     for (int i = 0; i < rows * cols; i++) {
         seed = seed * 1103515245u + 12345u;
@@ -163,10 +163,10 @@ void test_matvec_add_vs_scalar_reference(void) {
         x[i] = ((float)((seed >> 16) & 0x7fff) / 32768.0f - 0.5f) * 0.5f;
     }
 
-    /* SIMD版 */
+    /* SIMD version */
     fe_matvec_add(W, x, out_simd, rows, cols);
 
-    /* 参照スカラー実装 */
+    /* Reference scalar implementation */
     for (int r = 0; r < rows; r++) {
         float sum = 0.0f;
         for (int c = 0; c < cols; c++) {
@@ -188,10 +188,10 @@ void test_matvec_add_vs_scalar_reference(void) {
     free(W); free(x); free(out_simd); free(out_ref);
 }
 
-/* ======== 6. softmax SIMD精度検証 ======== */
+/* ======== 6. softmax SIMD accuracy verification ======== */
 
 void test_softmax_simd_vs_reference(void) {
-    /* 典型的なattentionスコア範囲でテスト */
+    /* Test over a typical attention score range */
     int sizes[] = {24, 36, 48};
     float max_err_all = 0.0f;
 
@@ -201,17 +201,17 @@ void test_softmax_simd_vs_reference(void) {
         float* out_simd = (float*)malloc(n * sizeof(float));
         float* out_ref = (float*)malloc(n * sizeof(float));
 
-        /* 決定論的データ: attention-like scores */
+        /* Deterministic data: attention-like scores */
         unsigned int seed = 42 + s;
         for (int i = 0; i < n; i++) {
             seed = seed * 1103515245u + 12345u;
             input[i] = ((float)((seed >> 16) & 0x7fff) / 32768.0f - 0.5f) * 4.0f;
         }
 
-        /* SIMD softmax (テスト対象) */
+        /* SIMD softmax (test target) */
         fe_softmax(input, out_simd, n);
 
-        /* 参照: libm expf使用のスカラーsoftmax */
+        /* Reference: scalar softmax using libm expf */
         float max_val = -FLT_MAX;
         for (int i = 0; i < n; i++) {
             if (input[i] > max_val) max_val = input[i];
@@ -230,7 +230,7 @@ void test_softmax_simd_vs_reference(void) {
             if (err > max_err_all) max_err_all = err;
         }
 
-        /* softmax出力の和が1.0に近いことも確認 */
+        /* Also verify that the sum of softmax outputs is close to 1.0 */
         float sum_check = 0.0f;
         for (int i = 0; i < n; i++) sum_check += out_simd[i];
         TEST_ASSERT_FLOAT_WITHIN(1e-4f, 1.0f, sum_check);
@@ -243,7 +243,7 @@ void test_softmax_simd_vs_reference(void) {
     TEST_ASSERT_TRUE_MESSAGE(max_err_all < 1e-3f, msg);
 }
 
-/* ======== 7. フルパイプライン1000フレーム安定性 ======== */
+/* ======== 7. Full pipeline 1000-frame stability ======== */
 
 static float lcg_float(unsigned int* seed) {
     *seed = *seed * 1103515245u + 12345u;
@@ -303,22 +303,22 @@ void test_1000_frames_no_divergence(void) {
     int nan_count = 0, inf_count = 0;
 
     for (int frame = 0; frame < 1000; frame++) {
-        /* 多様な入力パターン */
+        /* Diverse input patterns */
         if (frame % 4 == 0) {
-            /* 正弦波 */
+            /* Sine wave */
             for (int i = 0; i < 512; i++)
                 input[i] = 0.3f * sinf(2.0f * PI_F * 440.0f * (float)(frame * 512 + i) / 48000.0f);
         } else if (frame % 4 == 1) {
-            /* ホワイトノイズ */
+            /* White noise */
             for (int i = 0; i < 512; i++) {
                 seed = seed * 1103515245u + 12345u;
                 input[i] = ((float)((seed >> 16) & 0x7fff) / 32768.0f - 0.5f) * 0.2f;
             }
         } else if (frame % 4 == 2) {
-            /* 無音 */
+            /* Silence */
             memset(input, 0, sizeof(input));
         } else {
-            /* インパルス */
+            /* Impulse */
             memset(input, 0, sizeof(input));
             input[0] = 0.5f;
         }
@@ -344,15 +344,15 @@ void test_1000_frames_no_divergence(void) {
 
     TEST_ASSERT_EQUAL_INT_MESSAGE(0, nan_count, msg);
     TEST_ASSERT_EQUAL_INT_MESSAGE(0, inf_count, msg);
-    /* 出力が有界であること (音声信号は通常[-1,1]だがNNの出力はもう少し大きくなりうる) */
+    /* Output must be bounded (audio signals are typically [-1,1] but NN output can be somewhat larger) */
     TEST_ASSERT_TRUE_MESSAGE(max_output < 100.0f,
-        "出力が100を超えた: 数値発散の疑い");
-    /* 出力が全てゼロでないこと (退化チェック) */
+        "Output exceeded 100: suspected numerical divergence");
+    /* Output must not be all zeros (degeneracy check) */
     TEST_ASSERT_TRUE_MESSAGE(max_output > 1e-8f,
-        "1000フレームの全出力がゼロ: パイプライン死亡");
+        "All outputs across 1000 frames are zero: pipeline is dead");
 }
 
-/* ======== 8. 決定性再現テスト: 2回実行で完全一致 ======== */
+/* ======== 8. Determinism reproducibility test: exact match across two runs ======== */
 
 void test_full_pipeline_deterministic(void) {
     int wc = fe_weight_count(FE_MODEL_TINY);
@@ -365,7 +365,7 @@ void test_full_pipeline_deterministic(void) {
     for (int i = 0; i < 512; i++)
         input[i] = 0.4f * sinf(2.0f * PI_F * 1000.0f * (float)i / 48000.0f);
 
-    /* 1回目: 10フレーム処理 */
+    /* First run: process 10 frames */
     FeState* s1 = fe_create(FE_MODEL_TINY, w, wc);
     float out1[10][512];
     for (int f = 0; f < 10; f++) {
@@ -373,7 +373,7 @@ void test_full_pipeline_deterministic(void) {
     }
     fe_destroy(s1);
 
-    /* 2回目: 同一入力で10フレーム処理 */
+    /* Second run: process 10 frames with identical input */
     FeState* s2 = fe_create(FE_MODEL_TINY, w, wc);
     float out2[10][512];
     for (int f = 0; f < 10; f++) {
@@ -383,7 +383,7 @@ void test_full_pipeline_deterministic(void) {
 
     free(w);
 
-    /* ビット完全一致を要求 */
+    /* Require bit-exact match */
     for (int f = 0; f < 10; f++) {
         for (int i = 0; i < 512; i++) {
             char msg[128];
@@ -393,7 +393,7 @@ void test_full_pipeline_deterministic(void) {
     }
 }
 
-/* ======== 9. 長期安定性: 出力振幅の有界性 (1000フレーム後) ======== */
+/* ======== 9. Long-term stability: output amplitude boundedness (after 1000 frames) ======== */
 
 void test_output_bounded_after_1000_frames(void) {
     int wc = fe_weight_count(FE_MODEL_TINY);
@@ -433,18 +433,18 @@ void test_output_bounded_after_1000_frames(void) {
         max_out_early, max_out_late,
         max_out_early > 0 ? max_out_late / max_out_early : 0.0f);
 
-    /* 後半の出力が初期の100倍以上に膨らんでいたら発散 */
+    /* If late output has grown to 100x or more of the initial output, it is diverging */
     if (max_out_early > 1e-8f) {
         TEST_ASSERT_TRUE_MESSAGE(max_out_late < max_out_early * 100.0f, msg);
     }
-    /* 絶対値で有界 */
+    /* Bounded in absolute value */
     TEST_ASSERT_TRUE_MESSAGE(max_out_late < 100.0f, msg);
 }
 
 int main(void) {
     UNITY_BEGIN();
 
-    /* SIMD関数個別精度 */
+    /* Individual SIMD function accuracy */
     RUN_TEST(test_fast_expf_vs_libm_over_range);
     RUN_TEST(test_f32x4_fast_exp_vs_libm);
     RUN_TEST(test_f32x4_fast_sigmoid_vs_scalar);
@@ -452,7 +452,7 @@ int main(void) {
     RUN_TEST(test_matvec_add_vs_scalar_reference);
     RUN_TEST(test_softmax_simd_vs_reference);
 
-    /* フルパイプライン検証 */
+    /* Full pipeline verification */
     RUN_TEST(test_1000_frames_no_divergence);
     RUN_TEST(test_full_pipeline_deterministic);
     RUN_TEST(test_output_bounded_after_1000_frames);

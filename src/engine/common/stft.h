@@ -1,5 +1,5 @@
 /*
- * stft.h — STFT/iSTFT インターフェース
+ * stft.h — STFT/iSTFT interface
  */
 
 #ifndef FE_STFT_H

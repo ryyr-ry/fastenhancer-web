@@ -1,41 +1,41 @@
 /*
- * small_48k.h — 48kHz Small モデル設定
+ * small_48k.h — 48kHz Small model configuration
  *
- * FastEnhancer ICASSP 2026 論文のSmallモデル(48kHz版)の全定数。
- * コンパイル時にこのヘッダをインクルードし、モデルサイズを固定する。
+ * All constants for the FastEnhancer ICASSP 2026 paper Small model (48kHz version).
+ * Include this header at compile time to fix the model size.
  *
  * s.yaml: channels=64, kernel_size=[8,3,3,3], rnnformer(num_blocks=3, channels=48, freq=48)
- * kernel_size配列の長さ-1 = ENC_BLOCKS = 3
+ * Length of kernel_size array - 1 = ENC_BLOCKS = 3
  */
 
 #ifndef FE_SMALL_48K_H
 #define FE_SMALL_48K_H
 
-/* オーディオパラメータ */
+/* Audio parameters */
 #define FE_SAMPLE_RATE      48000
 #define FE_N_FFT            1024
 #define FE_WIN_SIZE         1024
 #define FE_HOP_SIZE         512
-#define FE_FREQ_BINS        512     /* n_fft/2 (Nyquist除去後) */
-#define FE_SPEC_BINS        513     /* n_fft/2+1 (Nyquist含む) */
+#define FE_FREQ_BINS        512     /* n_fft/2 (after Nyquist removal) */
+#define FE_SPEC_BINS        513     /* n_fft/2+1 (including Nyquist) */
 
-/* アーキテクチャ定数 */
-#define FE_C1               64      /* Encoder/Decoderチャネル数 */
-#define FE_C2               48      /* RNNFormerチャネル数 */
-#define FE_F1               128     /* ストライド後周波数 (FREQ_BINS / STRIDE) */
-#define FE_F2               48      /* RNNFormer周波数次元 */
-#define FE_ENC_BLOCKS       3       /* Encoderブロック数 */
-#define FE_RF_BLOCKS        3       /* RNNFormerブロック数 */
+/* Architecture constants */
+#define FE_C1               64      /* Encoder/Decoder channels */
+#define FE_C2               48      /* RNNFormer channels */
+#define FE_F1               128     /* Post-stride frequency (FREQ_BINS / STRIDE) */
+#define FE_F2               48      /* RNNFormer frequency dimension */
+#define FE_ENC_BLOCKS       3       /* Number of Encoder blocks */
+#define FE_RF_BLOCKS        3       /* Number of RNNFormer blocks */
 #define FE_STRIDE           4
-#define FE_ENC_K0           8       /* PreNetカーネルサイズ */
-#define FE_ENC_K            3       /* Blockカーネルサイズ */
-#define FE_ENC_PAD          1       /* Blockパディング */
-#define FE_ENC_PRE_PAD      2       /* PreNetパディング */
+#define FE_ENC_K0           8       /* PreNet kernel size */
+#define FE_ENC_K            3       /* Block kernel size */
+#define FE_ENC_PAD          1       /* Block padding */
+#define FE_ENC_PRE_PAD      2       /* PreNet padding */
 #define FE_NUM_HEADS        4
 #define FE_HEAD_DIM         12      /* C2 / NUM_HEADS */
 #define FE_COMPRESS_EXP     0.3f
 
-/* レイヤー別重み数 */
+/* Per-layer weight counts */
 #define FE_W_ENC_PRENET     (FE_C1 * 2 * FE_ENC_K0 + 2 * FE_C1)
 #define FE_W_ENC_BLOCK      (FE_C1 * FE_C1 * FE_ENC_K + 2 * FE_C1)
 #define FE_W_RF_PRENET      (FE_F2 * FE_F1 + FE_C2 * FE_C1 + 2 * FE_C2)
@@ -51,7 +51,7 @@
 #define FE_W_DEC_POSTNET    (FE_C1 * 2 * FE_C1 + 2 * FE_C1 + \
                              FE_C1 * 2 * FE_ENC_K0 + 2)
 
-/* 総重み数 */
+/* Total weight count */
 #define FE_TOTAL_WEIGHTS    (FE_W_ENC_PRENET + \
                              FE_ENC_BLOCKS * FE_W_ENC_BLOCK + \
                              FE_W_RF_PRENET + \

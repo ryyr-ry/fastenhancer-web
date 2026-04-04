@@ -1,15 +1,15 @@
 /*
- * activations.h — 活性化関数インターフェース
+ * activations.h — Activation functions interface
  */
 
 #ifndef FE_ACTIVATIONS_H
 #define FE_ACTIVATIONS_H
 
-/* スカラー関数 */
+/* Scalar functions */
 float fe_sigmoid(float x);
 float fe_silu(float x);
 
-/* バッチ関数 (SIMD最適化) */
+/* Batch functions (SIMD optimized) */
 void fe_sigmoid_batch(const float* input, float* output, int n);
 void fe_silu_batch(const float* input, float* output, int n);
 

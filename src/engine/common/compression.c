@@ -1,10 +1,10 @@
 /*
- * compression.c — パワー圧縮/逆圧縮
+ * compression.c — Power compression/decompression
  *
- * 圧縮: mag^exponent (通常 exponent=0.3)
- * 逆圧縮: mag^(1/exponent)
+ * Compression: mag^exponent (typically exponent=0.3)
+ * Decompression: mag^(1/exponent)
  *
- * NaN/Inf/負値/デノーマルを安全に処理。
+ * Safely handles NaN/Inf/negative values/denormals.
  */
 
 #include "compression.h"
@@ -13,10 +13,10 @@
 #include <stdint.h>
 
 static const float MAX_MAGNITUDE = 1e10f;
-/* PyTorch CompressedSTFT と同一の mag floor (学習時: mag.clamp(min=eps)) */
+/* Same mag floor as PyTorch CompressedSTFT (during training: mag.clamp(min=eps)) */
 static const float MAG_FLOOR = 1e-5f;
 
-/* -ffast-math でも正しく動作するビット操作ベースの有限値チェック */
+/* Bit-manipulation-based finiteness check that works correctly even with -ffast-math */
 static inline int fe_is_finite(float x) {
     union { float f; uint32_t u; } conv;
     conv.f = x;
@@ -86,13 +86,13 @@ void fe_power_compress_complex(const float* re, const float* im,
         memset(out_im, 0, sizeof(float) * n);
         return;
     }
-    /* mag^(exp-1) = (mag²)^((exp-1)/2) → sqrtf を完全に排除 */
+    /* mag^(exp-1) = (mag^2)^((exp-1)/2) -> completely eliminates sqrtf */
     float half_scale_exp = (exponent - 1.0f) * 0.5f;
     float mag_floor_sq = MAG_FLOOR * MAG_FLOOR;
     for (int i = 0; i < n; i++) {
         float r = fe_sanitize(re[i]);
         float m = fe_sanitize(im[i]);
-        /* overflow対策: 非常に大きい値はスケーリングしてからmag_sq計算 */
+        /* Overflow prevention: scale very large values before computing mag_sq */
         float abs_r = r > 0.0f ? r : -r;
         float abs_m = m > 0.0f ? m : -m;
         float peak = abs_r > abs_m ? abs_r : abs_m;
@@ -122,7 +122,7 @@ void fe_power_decompress_complex(const float* re, const float* im,
         memset(out_im, 0, sizeof(float) * n);
         return;
     }
-    /* mag^(1/exp-1) = (mag²)^((1/exp-1)/2) → sqrtf を完全に排除 */
+    /* mag^(1/exp-1) = (mag^2)^((1/exp-1)/2) -> completely eliminates sqrtf */
     float half_scale_exp = (1.0f / exponent - 1.0f) * 0.5f;
     float mag_floor_sq = MAG_FLOOR * MAG_FLOOR;
     for (int i = 0; i < n; i++) {
