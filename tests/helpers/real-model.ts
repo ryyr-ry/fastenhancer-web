@@ -1,10 +1,10 @@
 /**
- * real-model.ts — 実WASMバイナリを使ったテスト用ヘルパー
+ * real-model.ts — test helpers that use real WASM binaries
  *
- * モックを一切使わず、dist/wasm/ の実WASMモジュールと
- * weights/ の実重みファイルからModelオブジェクトを生成する。
+ * Creates Model objects from the real dist/wasm/ WASM modules and
+ * real weights/ files without using any mocks.
  *
- * .js (Emscripten glue) は使用せず、.wasm バイナリの手動インスタンス化のみ。
+ * Does not use the .js Emscripten glue, only manual instantiation of .wasm binaries.
  */
 import fs from 'fs';
 import path from 'path';

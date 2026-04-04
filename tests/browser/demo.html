@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FastEnhancer デモ — リアルタイムノイズ除去</title>
+<title>FastEnhancer Demo — Real-Time Noise Removal</title>
 <style>
   :root {
     --bg: #0d1117; --surface: #161b22; --border: #30363d;
@@ -69,15 +69,15 @@
 </head>
 <body>
 
-<h1>🎙️ <span>FastEnhancer</span> リアルタイムノイズ除去デモ</h1>
-<p class="subtitle">ブラウザ上で動作するWASM SIMDベースのニューラルネットワークノイズ除去エンジン</p>
+<h1>🎙️ <span>FastEnhancer</span> Real-Time Noise Removal Demo</h1>
+<p class="subtitle">A WASM SIMD-based neural network noise-removal engine running in the browser</p>
 
-<!-- 設定パネル -->
+<!-- Settings panel -->
 <div class="panel">
-  <h2>⚙️ 設定</h2>
+  <h2>⚙️ Settings</h2>
   <div class="row">
     <div class="col">
-      <label>モデルサイズ</label>
+      <label>Model Size</label>
       <select id="modelSelect">
         <option value="tiny">Tiny (28K params, ~300KB)</option>
         <option value="base">Base (101K params, ~600KB)</option>
@@ -85,16 +85,16 @@
       </select>
     </div>
     <div class="col">
-      <label>音声ソース</label>
+      <label>Audio Source</label>
       <select id="sourceSelect">
-        <option value="noisy10">🔊 ノイズ入り音声 (SNR~10dB)</option>
-        <option value="noisy0">🔊 重ノイズ音声 (SNR~0dB)</option>
-        <option value="clean">🎵 クリーン音声</option>
-        <option value="noise">📢 ホワイトノイズ</option>
-        <option value="sine">〰️ 1kHz正弦波</option>
-        <option value="silence">🔇 無音</option>
-        <option value="mic">🎤 マイク入力</option>
-        <option value="file">📁 ファイル選択...</option>
+        <option value="noisy10">🔊 Noisy speech (SNR~10dB)</option>
+        <option value="noisy0">🔊 Heavy-noise speech (SNR~0dB)</option>
+        <option value="clean">🎵 Clean speech</option>
+        <option value="noise">📢 White noise</option>
+        <option value="sine">~ 1kHz sine wave</option>
+        <option value="silence">🔇 Silence</option>
+        <option value="mic">🎤 Microphone input</option>
+        <option value="file">📁 Select file...</option>
       </select>
     </div>
     <div class="col">
@@ -104,60 +104,60 @@
   </div>
 </div>
 
-<!-- コントロールパネル -->
+<!-- Control panel -->
 <div class="panel">
-  <h2>🎛️ コントロール</h2>
+  <h2>🎛️ Controls</h2>
   <div class="row">
-    <button id="btnInit" class="primary">初期化</button>
-    <button id="btnPlay" disabled>▶ 再生 (ノイズ除去ON)</button>
-    <button id="btnOriginal" disabled>▶ 原音再生</button>
-    <button id="btnStop" disabled class="danger">■ 停止</button>
-    <span id="statusBadge" class="badge loading">未初期化</span>
+    <button id="btnInit" class="primary">Initialize</button>
+    <button id="btnPlay" disabled>▶ Play (Noise Removal ON)</button>
+    <button id="btnOriginal" disabled>▶ Play Original</button>
+    <button id="btnStop" disabled class="danger">■ Stop</button>
+    <span id="statusBadge" class="badge loading">Not Initialized</span>
   </div>
   <div class="row" style="margin-top:12px;">
     <div class="toggle">
       <input type="checkbox" id="chkBypass">
-      <label for="chkBypass">バイパス（処理スキップ）</label>
+      <label for="chkBypass">Bypass (skip processing)</label>
     </div>
     <div class="toggle">
       <input type="checkbox" id="chkAGC">
-      <label for="chkAGC">AGC（自動ゲイン制御）</label>
+      <label for="chkAGC">AGC (automatic gain control)</label>
     </div>
     <div class="toggle">
       <input type="checkbox" id="chkHPF">
-      <label for="chkHPF">HPF（ハイパスフィルター）</label>
+      <label for="chkHPF">HPF (high-pass filter)</label>
     </div>
   </div>
 </div>
 
-<!-- A/B比較ビジュアライザ -->
+<!-- A/B comparison visualizer -->
 <div class="ab-row">
   <div class="panel">
-    <h2>📥 入力波形</h2>
+    <h2>📥 Input Waveform</h2>
     <canvas id="canvasInput"></canvas>
   </div>
   <div class="panel">
-    <h2>📤 出力波形（ノイズ除去後）</h2>
+    <h2>📤 Output Waveform (After Noise Removal)</h2>
     <canvas id="canvasOutput"></canvas>
   </div>
 </div>
 
-<!-- パフォーマンス -->
+<!-- Performance -->
 <div class="panel">
-  <h2>📊 パフォーマンス</h2>
+  <h2>📊 Performance</h2>
   <div class="stats-grid">
-    <div class="stat-card" id="statAvg"><div class="value">--</div><div class="label">平均処理時間</div></div>
-    <div class="stat-card" id="statP99"><div class="value">--</div><div class="label">P99処理時間</div></div>
-    <div class="stat-card" id="statBudget"><div class="value">--</div><div class="label">時間予算</div></div>
-    <div class="stat-card" id="statUtil"><div class="value">--</div><div class="label">使用率</div></div>
-    <div class="stat-card" id="statFrames"><div class="value">--</div><div class="label">処理フレーム</div></div>
-    <div class="stat-card" id="statDrops"><div class="value">--</div><div class="label">ドロップ</div></div>
+    <div class="stat-card" id="statAvg"><div class="value">--</div><div class="label">Average Processing Time</div></div>
+    <div class="stat-card" id="statP99"><div class="value">--</div><div class="label">P99 Processing Time</div></div>
+    <div class="stat-card" id="statBudget"><div class="value">--</div><div class="label">Time Budget</div></div>
+    <div class="stat-card" id="statUtil"><div class="value">--</div><div class="label">Utilization</div></div>
+    <div class="stat-card" id="statFrames"><div class="value">--</div><div class="label">Processed Frames</div></div>
+    <div class="stat-card" id="statDrops"><div class="value">--</div><div class="label">Drops</div></div>
   </div>
 </div>
 
-<!-- ログ -->
+<!-- Log -->
 <div class="panel">
-  <h2>📋 ログ</h2>
+  <h2>📋 Log</h2>
   <div id="log"></div>
 </div>
 
@@ -214,36 +214,36 @@ let isInitialized = false;
 let statsInterval = null;
 let animFrame = null;
 
-// ========== 初期化 ==========
+// ========== Initialization ==========
 $('btnInit').addEventListener('click', async () => {
   try {
     $('btnInit').disabled = true;
-    setStatus('初期化中...', 'loading');
-    log('初期化開始...');
+    setStatus('Initializing...', 'loading');
+    log('Starting initialization...');
 
     const modelKey = $('modelSelect').value;
     const config = MODEL_CONFIG[modelKey];
     const simd = detectSimdSupport();
     const wasmName = simd ? config.wasmSimd : config.wasmScalar;
 
-    log(`モデル: ${modelKey} (ID: ${config.id}, variant: ${simd ? 'SIMD' : 'scalar'})`);
-    log('WASM バイナリをロード中...');
+    log(`Model: ${modelKey} (ID: ${config.id}, variant: ${simd ? 'SIMD' : 'scalar'})`);
+    log('Loading WASM binary...');
     const wasmResp = await fetch(`/dist/wasm/${wasmName}.wasm`);
     if (!wasmResp.ok) throw new Error(`WASM fetch failed: ${wasmResp.status}`);
     const wasmBytes = await wasmResp.arrayBuffer();
     log(`  WASM: ${(wasmBytes.byteLength / 1024).toFixed(1)} KB`);
 
-    log('エクスポートマップをロード中...');
+    log('Loading export map...');
     const mapResp = await fetch(`/dist/wasm/${wasmName}-exports.json`);
     if (!mapResp.ok) throw new Error(`Export map fetch failed: ${mapResp.status}`);
     const exportMap = await mapResp.json();
-    log(`  エクスポート: ${Object.keys(exportMap).length} 関数`);
+    log(`  Exports: ${Object.keys(exportMap).length} functions`);
 
-    log('モデル重みをロード中...');
+    log('Loading model weights...');
     const weightResp = await fetch(`/weights/${config.weight}`);
     if (!weightResp.ok) throw new Error(`Weight fetch failed: ${weightResp.status}`);
     const weightBytes = await weightResp.arrayBuffer();
-    log(`  重み: ${(weightBytes.byteLength / 1024).toFixed(1)} KB`);
+    log(`  Weights: ${(weightBytes.byteLength / 1024).toFixed(1)} KB`);
 
     if (audioCtx) {
       await audioCtx.close();
@@ -252,7 +252,7 @@ $('btnInit').addEventListener('click', async () => {
     audioCtx = new AudioContext({ sampleRate: SAMPLE_RATE });
     log(`AudioContext: ${audioCtx.sampleRate} Hz, state=${audioCtx.state}`);
 
-    log('AudioWorklet モジュール登録中...');
+    log('Registering AudioWorklet module...');
     await audioCtx.audioWorklet.addModule('/dist/worklet/processor.js');
 
     workletNode = new AudioWorkletNode(audioCtx, 'fastenhancer-processor', {
@@ -290,40 +290,40 @@ $('btnInit').addEventListener('click', async () => {
       throw new Error(`Worklet init error: ${initResult.message}`);
     }
 
-    log(`Worklet 初期化成功: hopSize=${initResult.hopSize}`);
+    log(`Worklet initialized successfully: hopSize=${initResult.hopSize}`);
 
-    // init完了後、onmessageを汎用ハンドラに切り替え
+    // After initialization completes, switch onmessage to the generic handler
     workletNode.port.onmessage = (e) => {
       const t = e.data.type;
       if (t === 'stats') handleStats(e);
       else if (t === 'output_info') handleOutputInfo(e);
       else if (t === 'auto_bypass') {
-        log(e.data.enabled ? '⚠️ 自動バイパス発動（5連続オーバーラン）' : '✅ 自動バイパス解除');
+        log(e.data.enabled ? '⚠️ Auto-bypass enabled (5 consecutive overruns)' : '✅ Auto-bypass disabled');
       }
       else if (t === 'process_error') {
-        log(`❌ 処理エラー: ${e.data.message}`);
+        log(`❌ Processing error: ${e.data.message}`);
       }
       else if (t === 'timer_info') {
-        log(`⏱️ タイマー診断: performance.now()凍結=${e.data.perfNowFrozen}, フォールバック=${e.data.fallback}`);
+        log(`⏱️ Timer diagnostics: performance.now() frozen=${e.data.perfNowFrozen}, fallback=${e.data.fallback}`);
       }
     };
 
     isInitialized = true;
-    setStatus('準備完了', 'ok');
+    setStatus('Ready', 'ok');
     $('btnPlay').disabled = false;
     $('btnOriginal').disabled = false;
-    log('✅ 初期化完了！再生ボタンを押してください。');
+    log('✅ Initialization complete! Press the play button.');
 
   } catch (err) {
-    setStatus('エラー', 'ng');
-    log(`❌ 初期化失敗: ${err.message}`);
+    setStatus('Error', 'ng');
+    log(`❌ Initialization failed: ${err.message}`);
     console.error(err);
   } finally {
     $('btnInit').disabled = false;
   }
 });
 
-// ========== 音声ソースの準備 ==========
+// ========== Prepare audio source ==========
 async function prepareSource() {
   const sourceKey = $('sourceSelect').value;
 
@@ -332,21 +332,21 @@ async function prepareSource() {
       micStream = await navigator.mediaDevices.getUserMedia({
         audio: { sampleRate: SAMPLE_RATE, channelCount: 1, echoCancellation: false, noiseSuppression: false },
       });
-      log('🎤 マイク入力を取得');
+      log('🎤 Microphone input acquired');
     }
     return audioCtx.createMediaStreamSource(micStream);
   }
 
   if (sourceKey === 'file') {
-    if (!audioBuffer) throw new Error('ファイルを選択してください');
+    if (!audioBuffer) throw new Error('Please select a file');
   } else {
     const url = AUDIO_FILES[sourceKey];
-    log(`音声ファイルをロード中: ${url}`);
+    log(`Loading audio file: ${url}`);
     const resp = await fetch(url);
     if (!resp.ok) throw new Error(`Audio fetch failed: ${resp.status}`);
     const arrayBuf = await resp.arrayBuffer();
     audioBuffer = await audioCtx.decodeAudioData(arrayBuf);
-    log(`  デコード: ${audioBuffer.duration.toFixed(1)}秒, ${audioBuffer.sampleRate}Hz, ${audioBuffer.numberOfChannels}ch`);
+    log(`  Decoded: ${audioBuffer.duration.toFixed(1)}s, ${audioBuffer.sampleRate}Hz, ${audioBuffer.numberOfChannels}ch`);
   }
 
   const src = audioCtx.createBufferSource();
@@ -355,7 +355,7 @@ async function prepareSource() {
   return src;
 }
 
-// ========== 再生（ノイズ除去ON） ==========
+// ========== Playback (noise removal ON) ==========
 $('btnPlay').addEventListener('click', async () => {
   if (!isInitialized) return;
   await stopPlayback();
@@ -367,8 +367,8 @@ $('btnPlay').addEventListener('click', async () => {
 
     if (sourceNode.start) sourceNode.start();
     isPlaying = true;
-    setStatus('🔊 ノイズ除去再生中', 'ok');
-    log('▶ ノイズ除去再生開始');
+    setStatus('🔊 Playing with noise removal', 'ok');
+    log('▶ Started playback with noise removal');
 
     $('btnPlay').disabled = true;
     $('btnOriginal').disabled = true;
@@ -377,11 +377,11 @@ $('btnPlay').addEventListener('click', async () => {
     startVisualizer();
     startStatsPolling();
   } catch (err) {
-    log(`❌ 再生失敗: ${err.message}`);
+    log(`❌ Playback failed: ${err.message}`);
   }
 });
 
-// ========== 原音再生 ==========
+// ========== Original playback ==========
 $('btnOriginal').addEventListener('click', async () => {
   if (!isInitialized) return;
   await stopPlayback();
@@ -393,8 +393,8 @@ $('btnOriginal').addEventListener('click', async () => {
 
     if (sourceNode.start) sourceNode.start();
     isPlaying = true;
-    setStatus('🔊 原音再生中', 'loading');
-    log('▶ 原音再生開始（ノイズ除去なし）');
+    setStatus('🔊 Playing original audio', 'loading');
+    log('▶ Started original playback (without noise removal)');
 
     $('btnPlay').disabled = true;
     $('btnOriginal').disabled = true;
@@ -402,11 +402,11 @@ $('btnOriginal').addEventListener('click', async () => {
 
     startVisualizer();
   } catch (err) {
-    log(`❌ 再生失敗: ${err.message}`);
+    log(`❌ Playback failed: ${err.message}`);
   }
 });
 
-// ========== 停止 ==========
+// ========== Stop ==========
 $('btnStop').addEventListener('click', () => stopPlayback());
 
 async function stopPlayback() {
@@ -428,15 +428,15 @@ async function stopPlayback() {
   $('btnPlay').disabled = !isInitialized;
   $('btnOriginal').disabled = !isInitialized;
   $('btnStop').disabled = true;
-  if (isInitialized) setStatus('準備完了', 'ok');
-  log('■ 再生停止');
+  if (isInitialized) setStatus('Ready', 'ok');
+  log('■ Playback stopped');
 }
 
-// ========== コントロール ==========
+// ========== Controls ==========
 $('chkBypass').addEventListener('change', (e) => {
   if (workletNode) {
     workletNode.port.postMessage({ type: 'set_bypass', enabled: e.target.checked });
-    log(`バイパス: ${e.target.checked ? 'ON' : 'OFF'}`);
+    log(`Bypass: ${e.target.checked ? 'ON' : 'OFF'}`);
   }
 });
 $('chkAGC').addEventListener('change', (e) => {
@@ -452,7 +452,7 @@ $('chkHPF').addEventListener('change', (e) => {
   }
 });
 
-// ========== ファイル選択 ==========
+// ========== File selection ==========
 $('sourceSelect').addEventListener('change', (e) => {
   if (e.target.value === 'file') {
     $('fileInput').click();
@@ -461,15 +461,15 @@ $('sourceSelect').addEventListener('change', (e) => {
 $('fileInput').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
-  log(`📁 ファイル選択: ${file.name} (${(file.size/1024).toFixed(1)} KB)`);
+  log(`📁 File selected: ${file.name} (${(file.size/1024).toFixed(1)} KB)`);
   const arrayBuf = await file.arrayBuffer();
   if (audioCtx) {
     audioBuffer = await audioCtx.decodeAudioData(arrayBuf);
-    log(`  デコード: ${audioBuffer.duration.toFixed(1)}秒, ${audioBuffer.sampleRate}Hz`);
+    log(`  Decoded: ${audioBuffer.duration.toFixed(1)}s, ${audioBuffer.sampleRate}Hz`);
   }
 });
 
-// ========== パフォーマンス統計 ==========
+// ========== Performance statistics ==========
 function startStatsPolling() {
   if (!workletNode) return;
   statsInterval = setInterval(() => {
@@ -493,13 +493,13 @@ function handleStats(e) {
   const drops = s.droppedFrames ?? 0;
   const totalTimes = s.totalFrames ?? 0;
 
-  // 初回stats受信時に詳細ログ
+  // Log detailed information on the first stats receipt
   if (!handleStats._logged && frames > 0) {
     handleStats._logged = true;
-    log(`📊 統計受信: avg=${avgMs.toFixed(3)}ms, p99=${p99Ms.toFixed(3)}ms, ` +
+    log(`📊 Stats received: avg=${avgMs.toFixed(3)}ms, p99=${p99Ms.toFixed(3)}ms, ` +
         `frames=${frames}, stored=${totalTimes}, drops=${drops}`);
     if (avgMs === 0 && totalTimes > 0) {
-      log('⚠️ performance.now()がAudioWorklet内で低精度の可能性 (Spectre mitigation)');
+      log('⚠️ performance.now() may have low precision inside AudioWorklet (Spectre mitigation)');
     }
   }
 
@@ -520,11 +520,11 @@ function handleOutputInfo(e) {
   const hasNaN = s.hasNaN || false;
   const hasInf = s.hasInf || false;
 
-  // RMSと非ゼロ比率をログに1回だけ出力
+  // Output RMS and non-zero ratio to the log only once
   if (!handleOutputInfo._logged && s.frameCount > 10) {
     handleOutputInfo._logged = true;
-    log(`📊 出力品質: RMS=${rms.toFixed(6)}, 非ゼロ=${(nonZero*100).toFixed(1)}%` +
-        (hasNaN ? ' ⚠️NaN検出' : '') + (hasInf ? ' ⚠️Inf検出' : ''));
+    log(`📊 Output quality: RMS=${rms.toFixed(6)}, non-zero=${(nonZero*100).toFixed(1)}%` +
+        (hasNaN ? ' ⚠️NaN detected' : '') + (hasInf ? ' ⚠️Inf detected' : ''));
   }
 }
 handleOutputInfo._logged = false;
@@ -535,7 +535,7 @@ function updateStat(id, value, cls) {
   card.className = `stat-card ${cls}`;
 }
 
-// ========== 波形ビジュアライザ ==========
+// ========== Waveform visualizer ==========
 function startVisualizer() {
   const canvasIn = $('canvasInput');
   const canvasOut = $('canvasOutput');
@@ -580,10 +580,10 @@ function drawWaveform(ctx, canvas, analyser, color) {
   ctx.fillText(`RMS: ${rms.toFixed(4)}`, 8 * devicePixelRatio, 16 * devicePixelRatio);
 }
 
-// ========== 初期ログ ==========
-log('FastEnhancer デモページ');
-log(`予算: ${BUDGET_MS.toFixed(2)}ms / フレーム (512 samples @ 48kHz)`);
-log('「初期化」ボタンを押してWASMエンジンをロードしてください。');
+// ========== Initial log ==========
+log('FastEnhancer demo page');
+log(`Budget: ${BUDGET_MS.toFixed(2)}ms / frame (512 samples @ 48kHz)`);
+log('Press the "Initialize" button to load the WASM engine.');
 
 </script>
 </body>

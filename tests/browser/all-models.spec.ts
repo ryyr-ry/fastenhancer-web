@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 const BASE_URL = 'http://localhost:3457';
 const MODELS = ['tiny', 'base', 'small'] as const;
 
-test('全モデル(tiny/base/small)のloadModel→createStreamDenoiser E2E', async ({ page }) => {
+test('loadModel → createStreamDenoiser E2E for all models (tiny/base/small)', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (err) => errors.push(err.message));
 

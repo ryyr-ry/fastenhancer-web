@@ -4,7 +4,7 @@ import { MODEL_CONFIGS, getModelConfig } from '../../../src/engine/model-config.
 const SIZES = ['tiny', 'base', 'small'] as const;
 
 describe('MODEL_CONFIGS', () => {
-  it('3つのモデルサイズが定義されている', () => {
+  it('defines three model sizes', () => {
     const keys = Object.keys(MODEL_CONFIGS);
     expect(keys).toHaveLength(3);
     for (const size of SIZES) {
@@ -12,7 +12,7 @@ describe('MODEL_CONFIGS', () => {
     }
   });
 
-  it('全モデル共通: nFft=1024, sampleRate=48000, nHeads=4, freq=128, stride=4', () => {
+  it('shares nFft=1024, sampleRate=48000, nHeads=4, freq=128, stride=4 across all models', () => {
     for (const size of SIZES) {
       const c = MODEL_CONFIGS[size];
       expect(c.nFft).toBe(1024);
@@ -61,14 +61,14 @@ describe('MODEL_CONFIGS', () => {
 });
 
 describe('getModelConfig', () => {
-  it('有効なサイズで対応する設定を返す', () => {
+  it('returns the corresponding config for a valid size', () => {
     for (const size of SIZES) {
       const config = getModelConfig(size);
       expect(config).toEqual(MODEL_CONFIGS[size]);
     }
   });
 
-  it('無効なサイズでthrow', () => {
+  it('throws for an invalid size', () => {
     expect(() => getModelConfig('huge' as any)).toThrow();
     expect(() => getModelConfig('' as any)).toThrow();
   });

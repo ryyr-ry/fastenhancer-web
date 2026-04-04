@@ -2,10 +2,10 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>全モデルE2Eテスト (tiny/base/small)</title>
+  <title>All Models E2E Test (tiny/base/small)</title>
 </head>
 <body>
-  <button id="startBtn">テスト開始</button>
+  <button id="startBtn">Start Test</button>
   <div id="result"></div>
   <script type="module">
     import { loadModel } from '/dist/api/loader.js';
@@ -76,8 +76,8 @@
       }
 
       lines.push(allOk
-        ? '[PASS] 全モデルテスト合格'
-        : '[FAIL] 全モデルテスト失敗');
+        ? '[PASS] All model tests passed'
+        : '[FAIL] All model tests failed');
       resultEl.textContent = lines.join('\n');
     });
   </script>

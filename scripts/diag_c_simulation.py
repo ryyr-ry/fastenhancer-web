@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-diag_c_simulation.py — エクスポート済み重みを使ってCパイプラインをPythonで再現
+diag_c_simulation.py — Reproduce the C pipeline in Python using exported weights
 
-エクスポートされたバイナリ重みを読み込み、Cエンジンと同じ演算順序で推論を行う。
-PyTorchモデル出力と比較して、重みエクスポートの正確性を検証する。
+Load the exported binary weights and run inference in the same operation order as
+the C engine. Compare against PyTorch model output to verify the accuracy of the
+weight export.
 """
 
 import struct
@@ -13,7 +14,7 @@ import sys
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# tiny_48k.h の定数
+# Constants from tiny_48k.h
 C1 = 24
 C2 = 20
 F1 = 128
@@ -35,7 +36,7 @@ COMPRESS_EXP = 0.3
 
 
 def load_weights(path):
-    """FEW1 バイナリから重みをロード"""
+    """Load weights from a FEW1 binary."""
     with open(path, "rb") as f:
         hdr = f.read(20)
         magic = hdr[:4]
@@ -46,12 +47,12 @@ def load_weights(path):
         crc = struct.unpack_from("<I", hdr, 16)[0]
         payload = f.read(wcount * 4)
         weights = np.frombuffer(payload, dtype=np.float32).copy()
-    print(f"重み: {wcount} floats, version={version}, model_id={model_id}, crc=0x{crc:08X}")
+    print(f"Weights: {wcount} floats, version={version}, model_id={model_id}, crc=0x{crc:08X}")
     return weights
 
 
 def parse_weights(w):
-    """setup_weights() と同じ順序で重みポインタを設定"""
+    """Assign weight pointers in the same order as setup_weights()."""
     p = 0
     result = {}
 
@@ -127,13 +128,13 @@ def parse_weights(w):
     take("dec_post_deconv_w", C1 * 2 * ENC_K0)
     take("dec_post_deconv_b", 2)
 
-    print(f"重み消費: {p} / {len(w)} (期待: {len(w)})")
-    assert p == len(w), f"重み消費量不一致: {p} != {len(w)}"
+    print(f"Weight consumption: {p} / {len(w)} (expected: {len(w)})")
+    assert p == len(w), f"Weight consumption mismatch: {p} != {len(w)}"
     return result
 
 
 def conv1d_bn(x, weight, bn_s, bn_b, in_len, in_ch, out_ch, kernel, stride, pad):
-    """fe_conv1d_bn の Python 実装"""
+    """Python implementation of fe_conv1d_bn."""
     w = weight.reshape(out_ch, in_ch, kernel)
     x_2d = x.reshape(in_ch, in_len)
     out_len = (in_len + 2 * pad - kernel) // stride + 1
@@ -173,7 +174,7 @@ def sigmoid(x):
 
 
 def gru_step(x, h, W_z, U_z, b_z, W_r, U_r, b_r, W_n, U_n, b_in_n, b_hn_n, D):
-    """fe_gru_step の Python 実装"""
+    """Python implementation of fe_gru_step."""
     W_z = W_z.reshape(D, D)
     U_z = U_z.reshape(D, D)
     W_r = W_r.reshape(D, D)
@@ -189,7 +190,7 @@ def gru_step(x, h, W_z, U_z, b_z, W_r, U_r, b_r, W_n, U_n, b_in_n, b_hn_n, D):
 
 
 def mhsa(x, W_q, b_q, W_k, b_k, W_v, b_v, W_o, b_o, n_heads, head_dim, seq_len, c2):
-    """fe_mhsa の Python 実装"""
+    """Python implementation of fe_mhsa."""
     W_q = W_q.reshape(c2, c2)
     W_k = W_k.reshape(c2, c2)
     W_v = W_v.reshape(c2, c2)
@@ -223,7 +224,7 @@ def mhsa(x, W_q, b_q, W_k, b_k, W_v, b_v, W_o, b_o, n_heads, head_dim, seq_len, 
 
 
 def conv_transpose1d(x, weight, bias, in_len, in_ch, out_ch, kernel, stride, pad):
-    """fe_conv_transpose1d の Python 実装"""
+    """Python implementation of fe_conv_transpose1d."""
     w = weight.reshape(in_ch, out_ch, kernel)
     x_2d = x.reshape(in_ch, in_len)
     full_len = (in_len - 1) * stride + kernel
@@ -246,8 +247,8 @@ def conv_transpose1d(x, weight, bias, in_len, in_ch, out_ch, kernel, stride, pad
 
 
 def simulate_c_pipeline(ws, input_np, target_frame=1):
-    """Cパイプラインをフレーム単位でシミュレーション"""
-    print(f"\n=== Cパイプライン シミュレーション (target: frame {target_frame}) ===\n")
+    """Simulate the C pipeline frame by frame."""
+    print(f"\n=== C Pipeline Simulation (target: frame {target_frame}) ===\n")
 
     # STFT state
     stft_buffer = np.zeros(N_FFT, dtype=np.float32)
@@ -332,7 +333,7 @@ def simulate_c_pipeline(ws, input_np, target_frame=1):
         for blk in range(RF_BLOCKS):
             rf_c_flat = rf_c.flatten()
 
-            # GRU: 各周波数binを独立処理
+            # GRU: process each frequency bin independently
             for f in range(F2):
                 x_f = rf_c_flat[f * C2:(f + 1) * C2].copy()
                 h_f = gru_h[blk][f * C2:(f + 1) * C2].copy()
@@ -447,7 +448,7 @@ def simulate_c_pipeline(ws, input_np, target_frame=1):
         overlap = time_domain[HOP_SIZE:].copy()
 
         if is_target:
-            print(f"\n出力 frame {frame_idx}:")
+            print(f"\nOutput frame {frame_idx}:")
             print(f"  rms={np.sqrt(np.mean(output_frame**2)):.6e}")
             print(f"  first5: {output_frame[:5]}")
             return output_frame
@@ -456,13 +457,13 @@ def simulate_c_pipeline(ws, input_np, target_frame=1):
 
 
 def compare_with_pytorch():
-    """PyTorch中間値ファイルとの比較"""
+    """Compare against PyTorch intermediate files."""
     diag_dir = os.path.join(PROJECT_ROOT, "tests", "golden", "diag")
     if not os.path.exists(diag_dir):
-        print("PyTorch中間値が見つかりません。先にdiag_intermediates.pyを実行してください。")
+        print("PyTorch intermediate values were not found. Run diag_intermediates.py first.")
         return
 
-    print("\n=== PyTorch中間値との比較 ===\n")
+    print("\n=== Comparison with PyTorch Intermediates ===\n")
 
     files = {
         "pt_enc_pre_f0": "Encoder PreNet (frame 0)",
@@ -490,12 +491,12 @@ def main():
     ws = parse_weights(weights)
 
     input_np = np.fromfile(input_path, dtype=np.float32)
-    print(f"入力: {len(input_np)} samples, RMS={np.sqrt(np.mean(input_np**2)):.6e}")
+    print(f"Input: {len(input_np)} samples, RMS={np.sqrt(np.mean(input_np**2)):.6e}")
 
-    # Frame 1 のシミュレーション
+    # Simulation for frame 1
     output = simulate_c_pipeline(ws, input_np, target_frame=1)
 
-    # PyTorch中間値との比較
+    # Comparison with PyTorch intermediates
     compare_with_pytorch()
 
 

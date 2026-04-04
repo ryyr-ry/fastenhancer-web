@@ -1,10 +1,11 @@
 /**
- * golden-vectors.test.ts — WASM golden vector 検証テスト (4-C)
+ * golden-vectors.test.ts — WASM golden vector verification tests (4-C)
  *
- * PyTorch streaming推論出力とWASM出力の数値一致を検証する。
- * scalar / SIMD 両バリアントで全3モデルサイズをテスト。
+ * Verifies numerical agreement between PyTorch streaming inference output
+ * and WASM output.
+ * Tests all three model sizes for both scalar and SIMD variants.
  *
- * 判定基準: MSE < 1e-5 (plan.md Phase 4-C)
+ * Acceptance criterion: MSE < 1e-5 (plan.md Phase 4-C)
  */
 import { describe, it, expect, afterAll } from 'vitest';
 import {
@@ -46,13 +47,13 @@ function teardown(ctx: TestContext): void {
   ctx.module._free(ctx.weightPtr);
 }
 
-describe('WASM golden vector 検証', () => {
+describe('WASM golden vector verification', () => {
   describe('Tiny scalar', () => {
     let ctx: TestContext;
 
     afterAll(() => { if (ctx) teardown(ctx); });
 
-    it('MSE < 1e-5 (PyTorch出力との一致)', async () => {
+    it('MSE < 1e-5 (matches PyTorch output)', async () => {
       ctx = await setupModel('tiny', 'scalar');
       const { input, output: expected } = loadGoldenVectors('tiny');
       const actual = processAllFrames(ctx.module, ctx.state, input, HOP_SIZE);
@@ -69,7 +70,7 @@ describe('WASM golden vector 検証', () => {
 
     afterAll(() => { if (ctx) teardown(ctx); });
 
-    it('MSE < 1e-5 (PyTorch出力との一致)', async () => {
+    it('MSE < 1e-5 (matches PyTorch output)', async () => {
       ctx = await setupModel('tiny', 'simd');
       const { input, output: expected } = loadGoldenVectors('tiny');
       const actual = processAllFrames(ctx.module, ctx.state, input, HOP_SIZE);
@@ -86,7 +87,7 @@ describe('WASM golden vector 検証', () => {
 
     afterAll(() => { if (ctx) teardown(ctx); });
 
-    it('MSE < 1e-5 (PyTorch出力との一致)', async () => {
+    it('MSE < 1e-5 (matches PyTorch output)', async () => {
       ctx = await setupModel('base', 'scalar');
       const { input, output: expected } = loadGoldenVectors('base');
       const actual = processAllFrames(ctx.module, ctx.state, input, HOP_SIZE);
@@ -103,7 +104,7 @@ describe('WASM golden vector 検証', () => {
 
     afterAll(() => { if (ctx) teardown(ctx); });
 
-    it('MSE < 1e-5 (PyTorch出力との一致)', async () => {
+    it('MSE < 1e-5 (matches PyTorch output)', async () => {
       ctx = await setupModel('base', 'simd');
       const { input, output: expected } = loadGoldenVectors('base');
       const actual = processAllFrames(ctx.module, ctx.state, input, HOP_SIZE);
@@ -120,7 +121,7 @@ describe('WASM golden vector 検証', () => {
 
     afterAll(() => { if (ctx) teardown(ctx); });
 
-    it('MSE < 1e-5 (PyTorch出力との一致)', async () => {
+    it('MSE < 1e-5 (matches PyTorch output)', async () => {
       ctx = await setupModel('small', 'scalar');
       const { input, output: expected } = loadGoldenVectors('small');
       const actual = processAllFrames(ctx.module, ctx.state, input, HOP_SIZE);
@@ -137,7 +138,7 @@ describe('WASM golden vector 検証', () => {
 
     afterAll(() => { if (ctx) teardown(ctx); });
 
-    it('MSE < 1e-5 (PyTorch出力との一致)', async () => {
+    it('MSE < 1e-5 (matches PyTorch output)', async () => {
       ctx = await setupModel('small', 'simd');
       const { input, output: expected } = loadGoldenVectors('small');
       const actual = processAllFrames(ctx.module, ctx.state, input, HOP_SIZE);
@@ -149,9 +150,9 @@ describe('WASM golden vector 検証', () => {
     });
   });
 
-  describe('Scalar vs SIMD 差分', () => {
+  describe('Scalar vs SIMD differences', () => {
     for (const model of ['tiny', 'base', 'small'] as ModelSize[]) {
-      it(`${model}: 同一入力で scalar / SIMD の出力が一致する (MSE < 1e-10)`, async () => {
+      it(`${model}: scalar / SIMD outputs match for the same input (MSE < 1e-10)`, async () => {
         const scalarCtx = await setupModel(model, 'scalar');
         const simdCtx = await setupModel(model, 'simd');
 

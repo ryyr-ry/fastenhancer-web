@@ -2,8 +2,8 @@ import { ValidationError } from './errors.js';
 import { MODEL_CONFIGS } from '../engine/model-config.js';
 
 /**
- * モデルカタログとレコメンデーション
- * 利用可能なモデルの情報取得とユースケースに基づく推奨を提供する。
+ * Model catalog and recommendations.
+ * Provides available model information and use-case-based recommendations.
  */
 
 export interface ModelInfo {
@@ -32,7 +32,7 @@ const MODEL_CATALOG: readonly ModelInfo[] = [
     params: 28_000,
     wasmSizeKB: 52,
     hopSize: MODEL_CONFIGS.tiny.hopSize,
-    description: '最軽量モデル。低レイテンシ環境やモバイル向け。',
+    description: 'Lightest model. Suitable for low-latency environments and mobile devices.',
   },
   {
     id: 'base',
@@ -40,7 +40,7 @@ const MODEL_CATALOG: readonly ModelInfo[] = [
     params: 101_000,
     wasmSizeKB: 65,
     hopSize: MODEL_CONFIGS.base.hopSize,
-    description: 'バランス型モデル。品質と速度を両立。',
+    description: 'Balanced model. Combines quality and speed.',
   },
   {
     id: 'small',
@@ -48,22 +48,22 @@ const MODEL_CATALOG: readonly ModelInfo[] = [
     params: 207_000,
     wasmSizeKB: 75,
     hopSize: MODEL_CONFIGS.small.hopSize,
-    description: '推奨モデル。最高品質のノイズ除去を提供。',
+    description: 'Recommended model. Provides the highest-quality noise removal.',
   },
 ] as const;
 
 const RECOMMENDATIONS: Record<ModelPriority, { index: number; reason: string }> = {
   speed: {
     index: 0,
-    reason: '処理速度を最優先。モバイルや低スペック環境で安定動作。',
+    reason: 'Prioritizes processing speed. Runs reliably on mobile and lower-spec environments.',
   },
   balanced: {
     index: 1,
-    reason: '品質と速度のバランスが良く、モバイル環境にも適する。',
+    reason: 'Well-balanced between quality and speed, and also suitable for mobile environments.',
   },
   quality: {
     index: 2,
-    reason: '最高品質のノイズ除去。多くの環境で推奨。',
+    reason: 'Highest-quality noise removal. Recommended for most environments.',
   },
 };
 
@@ -79,7 +79,7 @@ export function recommendModel(
   if (!rec) {
     const valid = Object.keys(RECOMMENDATIONS).join(', ');
     throw new ValidationError(
-      `不正なpriority: '${String(priority)}'。有効な値: ${valid}`,
+      `Invalid priority: '${String(priority)}'. Valid values: ${valid}`,
     );
   }
   const model = MODEL_CATALOG[rec.index];

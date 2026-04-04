@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
 """
-golden_vectors_streaming.py — streaming STFT版 golden vector生成
+golden_vectors_streaming.py — Generate golden vectors with streaming STFT
 
-Cエンジンと同じstreaming STFTを使い、
-PyTorch model_forward() でフレーム単位推論を行い、
-golden_input.bin / golden_output.bin を生成する。
+Use the same streaming STFT as the C engine, run frame-by-frame inference with
+PyTorch model_forward(), and generate golden_input.bin / golden_output.bin.
 
-これにより STFT framing 差異（center=True vs streaming）が排除され、
-NNパイプラインの数値一致のみをテストできる。
+This removes STFT framing differences (center=True vs streaming), so only the
+numerical agreement of the NN pipeline is tested.
 
-使い方:
+Usage:
   python scripts/golden_vectors_streaming.py
 
-前提条件:
-  - _ref_pytorch/ に https://github.com/aask1357/fastenhancer がクローン済み
-  - ckpt_tiny_48k/00500.pth が存在
+Prerequisites:
+  - https://github.com/aask1357/fastenhancer has been cloned into _ref_pytorch/
+  - ckpt_tiny_48k/00500.pth exists
   - pip install torch numpy
 """
 
@@ -36,7 +35,7 @@ N_FRAMES = 40
 HOP_SIZE = 512
 N_FFT = 1024
 FREQ_BINS = N_FFT // 2 + 1  # 513
-NN_FREQ = FREQ_BINS - 1     # 512 (Nyquist除去後)
+NN_FREQ = FREQ_BINS - 1     # 512 (after removing Nyquist)
 N_SAMPLES = N_FRAMES * HOP_SIZE
 RANDOM_SEED = 42
 INPUT_AMPLITUDE = 0.1
@@ -64,9 +63,9 @@ MODEL_CONFIGS = {
 import argparse
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Golden vector生成（streaming STFT版）")
+    parser = argparse.ArgumentParser(description="Generate golden vectors (streaming STFT version)")
     parser.add_argument("--model", "-m", choices=["tiny", "base", "small"], default="tiny",
-                        help="モデルサイズ (default: tiny)")
+                        help="Model size (default: tiny)")
     return parser.parse_args()
 
 
@@ -76,14 +75,14 @@ OUTPUT_DIR = None
 
 
 def hparams_to_dict(obj):
-    """HParamsオブジェクトを再帰的にdictに変換"""
+    """Recursively convert an HParams object into a dict."""
     if hasattr(obj, "items") and not isinstance(obj, dict):
         return {k: hparams_to_dict(v) for k, v in obj.items()}
     return obj
 
 
 def load_model():
-    """PyTorchモデルをロードして推論モードに設定"""
+    """Load the PyTorch model and switch it to inference mode."""
     from utils.hparams import get_hparams
     from models.fastenhancer.default.model import Model
 
@@ -120,21 +119,21 @@ def load_model():
 
 
 def generate_test_input():
-    """決定論的テスト入力を生成（seed=42, 振幅0.1の白色雑音）"""
+    """Generate deterministic test input (seed=42, white noise with amplitude 0.1)."""
     rng = np.random.RandomState(RANDOM_SEED)
     return (rng.randn(N_SAMPLES).astype(np.float32) * INPUT_AMPLITUDE)
 
 
 class StreamingSTFT:
-    """Cエンジンと同一のstreaming STFT/iSTFT（float32精度）
+    """Streaming STFT/iSTFT matching the C engine (float32 precision).
 
-    fe_stft_forward / fe_stft_inverse を完全再現:
-    - 周期的Hann窓: 0.5 - 0.5*cos(2πn/N), N=n_fft
-    - 分析: shift buffer → 窓適用 → FFT → 正の周波数ビン
-    - 合成: 共役対称復元 → iFFT → overlap-add（合成窓なし）
+    Fully reproduces fe_stft_forward / fe_stft_inverse:
+    - Periodic Hann window: 0.5 - 0.5*cos(2πn/N), N=n_fft
+    - Analysis: shift buffer → apply window → FFT → positive-frequency bins
+    - Synthesis: restore conjugate symmetry → iFFT → overlap-add (no synthesis window)
 
-    torch.fft を使用して float32 精度の FFT/iFFT を行い、
-    Cエンジンの radix-2 float32 FFT との精度差を最小化する。
+    Uses torch.fft for float32 FFT/iFFT to minimize precision differences
+    relative to the C engine's radix-2 float32 FFT.
     """
 
     def __init__(self, n_fft=1024, hop_size=512):
@@ -155,7 +154,7 @@ class StreamingSTFT:
         self.overlap.zero_()
 
     def forward(self, input_hop):
-        """Cエンジンのfe_stft_forwardと同一のSTFT分析
+        """STFT analysis equivalent to the C engine's fe_stft_forward.
 
         Returns: (spec_real[freq_bins], spec_imag[freq_bins]) as numpy float32
         """
@@ -171,10 +170,11 @@ class StreamingSTFT:
         return spectrum.real.numpy().copy(), spectrum.imag.numpy().copy()
 
     def inverse(self, spec_real, spec_imag):
-        """Cエンジンのfe_stft_inverseと同一のiSTFT合成
+        """iSTFT synthesis equivalent to the C engine's fe_stft_inverse.
 
-        DC成分とNyquist成分の虚部を0にし、irfftで合成。
-        合成窓なし、overlap-addのみ。float32精度。
+        Sets the imaginary parts of the DC and Nyquist components to 0 and
+        synthesizes with irfft. No synthesis window, overlap-add only, in
+        float32 precision.
         """
         n = self.n_fft
         hop = self.hop_size
@@ -199,10 +199,10 @@ class StreamingSTFT:
 
 
 def power_compress_complex(re, im, exponent=0.3, floor=MAG_FLOOR):
-    """Cエンジン fe_power_compress_complex と同一（float32精度）
+    """Equivalent to the C engine's fe_power_compress_complex (float32 precision).
 
     scale = mag^(exponent - 1) = mag^(-0.7)
-    mag < floor の場合は出力0
+    Output is 0 when mag < floor
     """
     re = re.astype(np.float32)
     im = im.astype(np.float32)
@@ -218,10 +218,10 @@ def power_compress_complex(re, im, exponent=0.3, floor=MAG_FLOOR):
 
 
 def power_decompress_complex(re, im, exponent=0.3, floor=MAG_FLOOR):
-    """Cエンジン fe_power_decompress_complex と同一（float32精度）
+    """Equivalent to the C engine's fe_power_decompress_complex (float32 precision).
 
     scale = mag^(1/exponent - 1) = mag^(2.333...)
-    mag < floor の場合は出力0
+    Output is 0 when mag < floor
     """
     re = re.astype(np.float32)
     im = im.astype(np.float32)
@@ -239,12 +239,12 @@ def power_decompress_complex(re, im, exponent=0.3, floor=MAG_FLOOR):
 def run_streaming_inference(model, test_input):
     """Streaming STFT + PyTorch model_forward + Streaming iSTFT
 
-    1. streaming STFT（Cエンジンと同一フレーミング）
-    2. Nyquist除去 + パワー圧縮
+    1. Streaming STFT (same framing as the C engine)
+    2. Remove Nyquist + power compression
     3. PyTorch model_forward() per-frame with GRU cache
-    4. 複素マスク適用（compressed × mask）
-    5. パワー復号
-    6. Nyquist復元 + streaming iSTFT
+    4. Apply complex mask (compressed × mask)
+    5. Power decompression
+    6. Restore Nyquist + streaming iSTFT
     """
     stft = StreamingSTFT(N_FFT, HOP_SIZE)
     output = np.zeros(N_SAMPLES, dtype=np.float32)
@@ -257,19 +257,19 @@ def run_streaming_inference(model, test_input):
         # Step 1: Streaming STFT → [513] real + [513] imag
         spec_re, spec_im = stft.forward(frame_input)
 
-        # Step 2: Nyquist除去 → [512]
+        # Step 2: Remove Nyquist → [512]
         nn_re = spec_re[:NN_FREQ].astype(np.float32)
         nn_im = spec_im[:NN_FREQ].astype(np.float32)
 
-        # Step 3: パワー圧縮
+        # Step 3: Power compression
         comp_re, comp_im = power_compress_complex(nn_re, nn_im, COMPRESS_EXP, MAG_FLOOR)
 
-        # Step 4: [1, 512, 1, 2] テンソルに変換
+        # Step 4: Convert to a [1, 512, 1, 2] tensor
         spec_tensor = torch.zeros(1, NN_FREQ, 1, 2, dtype=torch.float32)
         spec_tensor[0, :, 0, 0] = torch.from_numpy(comp_re)
         spec_tensor[0, :, 0, 1] = torch.from_numpy(comp_im)
 
-        # Step 5: model_forward (GRU cache受け渡し)
+        # Step 5: model_forward (passing the GRU cache)
         with torch.no_grad():
             if cache_list is None:
                 mask, cache_list = model.model_forward(spec_tensor)
@@ -279,14 +279,14 @@ def run_streaming_inference(model, test_input):
         mask_re = mask[0, :, 0, 0].numpy()
         mask_im = mask[0, :, 0, 1].numpy()
 
-        # Step 6: 複素マスク適用 (compressed × mask)
+        # Step 6: Apply complex mask (compressed × mask)
         out_re = comp_re * mask_re - comp_im * mask_im
         out_im = comp_re * mask_im + comp_im * mask_re
 
-        # Step 7: パワー復号
+        # Step 7: Power decompression
         dec_re, dec_im = power_decompress_complex(out_re, out_im, COMPRESS_EXP, MAG_FLOOR)
 
-        # Step 8: Nyquist復元 → [513] (float32)
+        # Step 8: Restore Nyquist → [513] (float32)
         full_re = np.zeros(FREQ_BINS, dtype=np.float32)
         full_im = np.zeros(FREQ_BINS, dtype=np.float32)
         full_re[:NN_FREQ] = dec_re.astype(np.float32)
@@ -304,7 +304,7 @@ def run_streaming_inference(model, test_input):
 
 
 def save_golden_vectors(test_input, test_output):
-    """golden vectorをバイナリファイルとして保存"""
+    """Save golden vectors as binary files."""
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     input_path = os.path.join(OUTPUT_DIR, "golden_input.bin")
@@ -313,32 +313,32 @@ def save_golden_vectors(test_input, test_output):
     test_input.tofile(input_path)
     test_output.tofile(output_path)
 
-    print(f"\n入力: {input_path} ({os.path.getsize(input_path)} bytes)")
-    print(f"出力: {output_path} ({os.path.getsize(output_path)} bytes)")
+    print(f"\nInput: {input_path} ({os.path.getsize(input_path)} bytes)")
+    print(f"Output: {output_path} ({os.path.getsize(output_path)} bytes)")
 
 
 def print_diagnostics(test_input, test_output):
-    """診断情報を出力"""
-    print(f"\n=== Streaming Golden Vector 生成完了 ===")
-    print(f"STFT方式:       streaming（Cエンジン互換、zero-init overlap）")
-    print(f"フレーム数:     {N_FRAMES}")
-    print(f"ホップサイズ:   {HOP_SIZE}")
-    print(f"FFTサイズ:      {N_FFT}")
-    print(f"サンプル数:     {N_SAMPLES}")
-    print(f"乱数シード:     {RANDOM_SEED}")
-    print(f"入力振幅:       {INPUT_AMPLITUDE}")
-    print(f"圧縮指数:       {COMPRESS_EXP}")
-    print(f"入力範囲:       [{test_input.min():.6f}, {test_input.max():.6f}]")
-    print(f"出力範囲:       [{test_output.min():.6f}, {test_output.max():.6f}]")
-    print(f"出力RMS:        {np.sqrt(np.mean(test_output**2)):.6e}")
-    print(f"出力最大絶対値: {np.max(np.abs(test_output)):.6e}")
+    """Print diagnostic information."""
+    print(f"\n=== Streaming Golden Vector Generation Complete ===")
+    print(f"STFT mode:          streaming (C-engine compatible, zero-init overlap)")
+    print(f"Frame count:        {N_FRAMES}")
+    print(f"Hop size:           {HOP_SIZE}")
+    print(f"FFT size:           {N_FFT}")
+    print(f"Sample count:       {N_SAMPLES}")
+    print(f"Random seed:        {RANDOM_SEED}")
+    print(f"Input amplitude:    {INPUT_AMPLITUDE}")
+    print(f"Compression exp:    {COMPRESS_EXP}")
+    print(f"Input range:        [{test_input.min():.6f}, {test_input.max():.6f}]")
+    print(f"Output range:       [{test_output.min():.6f}, {test_output.max():.6f}]")
+    print(f"Output RMS:         {np.sqrt(np.mean(test_output**2)):.6e}")
+    print(f"Output max abs:     {np.max(np.abs(test_output)):.6e}")
 
     has_nan = np.any(np.isnan(test_output))
     has_inf = np.any(np.isinf(test_output))
-    print(f"NaN検出:        {'あり ⚠' if has_nan else 'なし ✓'}")
-    print(f"Inf検出:        {'あり ⚠' if has_inf else 'なし ✓'}")
+    print(f"NaN detected:       {'yes ⚠' if has_nan else 'no ✓'}")
+    print(f"Inf detected:       {'yes ⚠' if has_inf else 'no ✓'}")
 
-    print(f"\nフレーム別RMS (先頭10フレーム):")
+    print(f"\nPer-frame RMS (first 10 frames):")
     for f in range(min(10, N_FRAMES)):
         frame = test_output[f * HOP_SIZE : (f + 1) * HOP_SIZE]
         rms = np.sqrt(np.mean(frame**2))
@@ -354,22 +354,22 @@ def main():
     CONFIG_PATH = cfg["config"]
     OUTPUT_DIR = cfg["output_dir"]
 
-    print(f"Streaming STFT + PyTorch model_forward() で golden vector生成中... (model={args.model})")
-    print(f"  STFT: streaming（zero-init, hop={HOP_SIZE}, n_fft={N_FFT}）")
+    print(f"Generating golden vectors with streaming STFT + PyTorch model_forward()... (model={args.model})")
+    print(f"  STFT: streaming (zero-init, hop={HOP_SIZE}, n_fft={N_FFT})")
     print(f"  NN:   PyTorch model_forward() frame-by-frame with GRU cache")
     print(f"  CKPT: {CKPT_PATH}")
     print()
 
     model = load_model()
-    print("モデルロード完了")
+    print("Model load complete")
 
     test_input = generate_test_input()
-    print(f"テスト入力生成完了: {N_SAMPLES} samples")
+    print(f"Test input generation complete: {N_SAMPLES} samples")
     print()
 
-    print("フレーム単位推論:")
+    print("Frame-by-frame inference:")
     test_output = run_streaming_inference(model, test_input)
-    print(f"\n推論完了: {len(test_output)} samples")
+    print(f"\nInference complete: {len(test_output)} samples")
 
     save_golden_vectors(test_input, test_output)
     print_diagnostics(test_input, test_output)

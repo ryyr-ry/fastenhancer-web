@@ -1,6 +1,7 @@
 /**
- * パワー圧縮/復号 + 複素マスク適用モジュール (TypeScript参照実装)
- * Cエンジンのcompression.c と同等の純TypeScript実装。
+ * Power compression/decompression + complex mask application module
+ * (TypeScript reference implementation)
+ * Pure TypeScript implementation equivalent to the C engine's compression.c.
  */
 
 export interface CompressResult {
@@ -16,7 +17,7 @@ export interface ComplexResult {
 const COMPRESS_EXP = 0.3;
 
 /**
- * パワー圧縮: 複素数 (re, im) → 圧縮後の (mag^0.3, phase)
+ * Power compression: complex number (re, im) → compressed (mag^0.3, phase)
  */
 export function powerCompress(re: number, im: number): CompressResult {
   const mag = Math.sqrt(re * re + im * im);
@@ -28,8 +29,8 @@ export function powerCompress(re: number, im: number): CompressResult {
 }
 
 /**
- * パワー復号: (compressedMag, phase) → 元の複素数 (re, im)
- * compressedMag = originalMag^0.3 なので originalMag = compressedMag^(1/0.3)
+ * Power decompression: (compressedMag, phase) → original complex number (re, im)
+ * compressedMag = originalMag^0.3, so originalMag = compressedMag^(1/0.3)
  */
 export function powerDecompress(compressedMag: number, phase: number): ComplexResult {
   if (compressedMag === 0) return { real: 0, imag: 0 };
@@ -41,7 +42,7 @@ export function powerDecompress(compressedMag: number, phase: number): ComplexRe
 }
 
 /**
- * 複素マスク適用 (複素数乗算)
+ * Apply complex mask (complex multiplication)
  * (inRe + inIm*i) * (maskRe + maskIm*i)
  */
 export function applyComplexMask(

@@ -1,14 +1,15 @@
 /**
- * wasm-benchmark.test.ts — WASMベンチマーク (4-D)
+ * wasm-benchmark.test.ts — WASM benchmark (4-D)
  *
- * scalar / SIMD の処理時間を計測する。
+ * Measures processing time for scalar and SIMD.
  *
- * 時間予算: hop=512 / 48kHz = 10.667ms
+ * Time budget: hop=512 / 48kHz = 10.667ms
  *
- * 重要: P99 < 10.67ms はブラウザAudioWorklet内の実時間制約。
- * Node.js V8環境ではGCスパイクによりP99が数十〜数百msに跳ねるため、
- * medianで予算内であることを検証する。
- * P99の実環境検証はPhase 8のPlaywright E2Eテストで行う。
+ * Important: P99 < 10.67ms is a real-time requirement inside browser
+ * AudioWorklet.
+ * In Node.js V8, GC spikes can push P99 to tens or hundreds of ms, so
+ * this test verifies that the median stays within budget.
+ * Real-environment P99 validation is covered by the Phase 8 Playwright E2E tests.
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -44,7 +45,7 @@ async function benchmarkVariant(model: ModelSize, variant: Variant): Promise<Ben
   const outPtr = module._fe_get_output_ptr(state);
 
   const testInput = new Float32Array(HOP_SIZE);
-  // 固定シードPRNGで再現性のあるテスト入力を生成
+  // Generate reproducible test input with a fixed-seed PRNG
   let prngState = 42;
   for (let i = 0; i < HOP_SIZE; i++) {
     prngState = (prngState * 1103515245 + 12345) & 0x7fffffff;
@@ -82,14 +83,14 @@ async function benchmarkVariant(model: ModelSize, variant: Variant): Promise<Ben
   };
 }
 
-describe('WASMベンチマーク', () => {
+describe('WASM benchmark', () => {
   for (const model of ['tiny', 'base', 'small'] as ModelSize[]) {
-    it(`${model} scalar: medianが時間予算(${TIME_BUDGET_MS.toFixed(2)}ms)内`, async () => {
+    it(`${model} scalar: median stays within the time budget (${TIME_BUDGET_MS.toFixed(2)}ms)`, async () => {
       const result = await benchmarkVariant(model, 'scalar');
       expect(result.medianMs).toBeLessThan(TIME_BUDGET_MS);
     }, 60000);
 
-    it(`${model} SIMD: medianが時間予算(${TIME_BUDGET_MS.toFixed(2)}ms)内`, async () => {
+    it(`${model} SIMD: median stays within the time budget (${TIME_BUDGET_MS.toFixed(2)}ms)`, async () => {
       const result = await benchmarkVariant(model, 'simd');
       expect(result.medianMs).toBeLessThan(TIME_BUDGET_MS);
     }, 60000);

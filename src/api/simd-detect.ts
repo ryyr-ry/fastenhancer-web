@@ -1,20 +1,20 @@
 /**
- * simd-detect.ts — WASM SIMDランタイムサポート検出
+ * simd-detect.ts — Detect WASM SIMD runtime support
  *
- * WebAssembly.validate() に v128 型を含む最小WASMバイナリを渡し、
- * ブラウザ/ランタイムがWASM SIMDをサポートしているか判定する。
+ * Passes a minimal WASM binary containing a v128 type to WebAssembly.validate()
+ * to determine whether the browser/runtime supports WASM SIMD.
  *
- * 責務: SIMD検出のみ。ロード判断はwasm-loader.tsが行う。
+ * Responsibility: SIMD detection only. Load selection is handled by wasm-loader.ts.
  */
 
 /**
- * v128型を使用する最小WASMモジュールのバイト列。
+ * Byte sequence for a minimal WASM module that uses the v128 type.
  *
  * (module
  *   (func (param v128) (result v128)
  *     local.get 0))
  *
- * セクション構成:
+ * Section layout:
  * - magic + version (8 bytes)
  * - type section: (v128) -> v128
  * - function section
@@ -43,20 +43,20 @@ const SIMD_TEST_MODULE: readonly number[] = [
 ];
 
 /**
- * SIMD検出用テストバイナリを新しいUint8Arrayとして返す。
- * 呼び出しごとに独立したインスタンスを生成する。
+ * Returns the SIMD detection test binary as a new Uint8Array.
+ * Creates an independent instance on each call.
  */
 export function getSimdTestBytes(): Uint8Array {
   return new Uint8Array(SIMD_TEST_MODULE);
 }
 
 /**
- * 現在の環境がWASM SIMDをサポートしているか検出する。
+ * Detects whether the current environment supports WASM SIMD.
  *
- * WebAssembly.validate()にv128型を含む最小モジュールを渡し、
- * trueが返ればSIMD対応、falseまたは例外ならSIMD非対応と判定。
+ * Passes a minimal module containing a v128 type to WebAssembly.validate().
+ * If it returns true, SIMD is supported; if it returns false or throws, SIMD is not supported.
  *
- * @returns SIMD対応ならtrue、非対応ならfalse
+ * @returns true if SIMD is supported, otherwise false
  */
 export function detectSimdSupport(): boolean {
   try {
@@ -65,8 +65,8 @@ export function detectSimdSupport(): boolean {
     }
     return WebAssembly.validate(getSimdTestBytes() as BufferSource);
   } catch {
-    // WebAssembly.validate()が例外を投げた場合はSIMD非対応と判定。
-    // 古いブラウザやv128未対応環境で発生しうる正常系。
+    // If WebAssembly.validate() throws, treat SIMD as unsupported.
+    // This can happen normally in older browsers or environments without v128 support.
     return false;
   }
 }

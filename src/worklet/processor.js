@@ -1,17 +1,17 @@
 /**
  * FastEnhancer AudioWorkletProcessor
  *
- * WASMエンジンをAudioWorklet内で直接インスタンス化し、
- * リアルタイムノイズ除去を行う。
+ * Directly instantiates the WASM engine inside the AudioWorklet
+ * and performs real-time noise removal.
  *
- * 初期化フロー:
+ * Initialization flow:
  *   Main thread → postMessage({ type:'init', wasmBytes, weightBytes, exportMap, modelSize })
- *   Worklet     → WebAssembly.Module/Instance を同期生成 → fe_init() → postMessage({ type:'ready' })
+ *   Worklet     → synchronously create WebAssembly.Module/Instance → fe_init() → postMessage({ type:'ready' })
  *
- * process()フロー:
- *   1. outputFrame の現在位置から128サンプルを出力
- *   2. input 128サンプルをフレームバッファに蓄積
- *   3. hopSize分蓄積したらWASM処理 → outputFrame更新
+ * process() flow:
+ *   1. Output 128 samples from the current position of outputFrame
+ *   2. Accumulate 128 input samples into the frame buffer
+ *   3. Once hopSize samples have accumulated, run WASM processing → update outputFrame
  */
 
 /* global registerProcessor, AudioWorkletProcessor, sampleRate, currentTime */
@@ -208,7 +208,7 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
       this._outputPos = 0;
       this._budgetMs = (hopSize / sampleRate) * 1000;
 
-      // タイマー診断をinit時に実行（process()内のbusy-waitを回避）
+      // Run timer diagnostics during init (avoids busy-waiting inside process())
       _checkTimer();
       if (_perfNowFrozen) {
         this.port.postMessage({

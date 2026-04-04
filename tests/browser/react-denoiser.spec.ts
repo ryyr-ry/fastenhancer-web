@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 const BASE_URL = 'http://localhost:3457';
 
 /**
- * data-state属性が指定の値になるまで待機するヘルパー
+ * Helper that waits until the data-state attribute reaches the specified value
  */
 async function waitForState(page: import('@playwright/test').Page, expectedState: string, timeout = 15000) {
   await page.waitForFunction(
@@ -14,7 +14,7 @@ async function waitForState(page: import('@playwright/test').Page, expectedState
 }
 
 test.describe('useDenoiser React Hook E2E', () => {
-  test('初期状態がidleで、start→processing→stop→idle遷移', async ({ page }) => {
+  test('starts in idle and transitions start → processing → stop → idle', async ({ page }) => {
     const errors: string[] = [];
     page.on('pageerror', (err) => errors.push(err.message));
 
@@ -44,7 +44,7 @@ test.describe('useDenoiser React Hook E2E', () => {
     expect(errors).toHaveLength(0);
   });
 
-  test('bypass切り替えがstate反映される', async ({ page }) => {
+  test('reflects bypass toggling in state', async ({ page }) => {
     await page.goto(`${BASE_URL}/tests/browser/react-test.html`);
     await page.waitForFunction(
       () => document.getElementById('status')?.textContent === 'ready',
@@ -66,7 +66,7 @@ test.describe('useDenoiser React Hook E2E', () => {
     await waitForState(page, 'idle');
   });
 
-  test('destroyで状態がdestroyedに遷移', async ({ page }) => {
+  test('transitions to destroyed state on destroy', async ({ page }) => {
     await page.goto(`${BASE_URL}/tests/browser/react-test.html`);
     await page.waitForFunction(
       () => document.getElementById('status')?.textContent === 'ready',
@@ -80,7 +80,7 @@ test.describe('useDenoiser React Hook E2E', () => {
     await waitForState(page, 'destroyed');
   });
 
-  test('destroy後のstartがerror状態になる', async ({ page }) => {
+  test('sets state to error when start is called after destroy', async ({ page }) => {
     await page.goto(`${BASE_URL}/tests/browser/react-test.html`);
     await page.waitForFunction(
       () => document.getElementById('status')?.textContent === 'ready',
@@ -95,6 +95,6 @@ test.describe('useDenoiser React Hook E2E', () => {
 
     const hookEl = page.locator('#hook-state');
     const errorMsg = await hookEl.getAttribute('data-error');
-    expect(errorMsg).toContain('破棄');
+    expect(errorMsg).toContain('destroyed');
   });
 });

@@ -2,10 +2,10 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>Phase 5-E: WASM処理速度 + AudioWorkletリアルタイム検証</title>
+  <title>Phase 5-E: WASM Processing Speed + AudioWorklet Real-Time Validation</title>
 </head>
 <body>
-  <h1>WASMフレーム処理ベンチマーク + AudioWorkletリアルタイム検証</h1>
+  <h1>WASM Frame Processing Benchmark + AudioWorklet Real-Time Validation</h1>
   <button id="startBtn">Start Benchmark</button>
   <pre id="log"></pre>
 
@@ -41,7 +41,7 @@
         appendLog(`[1] WASM=${wasmBytes.byteLength}B, weights=${weightBytes.byteLength}B`);
 
         /* ===== Section A: Main-thread WASM benchmark (accurate per-frame timing) ===== */
-        appendLog('[2] メインスレッド WASM ベンチマーク (1000 frames)...');
+        appendLog('[2] Main-thread WASM benchmark (1000 frames)...');
         const mod = await WebAssembly.compile(wasmBytes);
         const needed = WebAssembly.Module.imports(mod);
         const importObj = {};
@@ -126,7 +126,7 @@
         }
 
         /* ===== Section B: Real-time AudioWorklet integration (glitch-free validation) ===== */
-        appendLog('[4] AudioWorklet リアルタイム動作検証 (2s)...');
+        appendLog('[4] AudioWorklet real-time behavior validation (2s)...');
         const duration = 2.0;
         realtimeCtx = new AudioContext({ sampleRate: 48000 });
         if (realtimeCtx.state === 'suspended') await realtimeCtx.resume();

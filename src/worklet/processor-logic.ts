@@ -1,7 +1,7 @@
 /**
- * AudioWorklet処理スケジューラ
- * フレーム処理の予算管理、フレームドロップ判定、
- * 連続超過時のパススルー遷移を制御する。
+ * AudioWorklet processing scheduler
+ * Controls frame processing budget management, frame drop detection,
+ * and passthrough transitions on consecutive overruns.
  */
 
 interface FrameInfo {

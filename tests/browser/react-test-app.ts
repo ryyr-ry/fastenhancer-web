@@ -1,11 +1,11 @@
 /**
- * React useDenoiser E2Eテスト用アプリケーション
+ * Application for React useDenoiser E2E tests
  *
- * bun build でバンドルして tests/browser/vendor/react-test-bundle.js に出力。
- * react-test.html から読み込まれる。
+ * Bundled with bun build and output to tests/browser/vendor/react-test-bundle.js.
+ * Loaded from react-test.html.
  *
- * useDenoiser v2: wasmBytes/weightBytes/exportMap は不要。
- * baseUrl を指定するだけでloadModelが自動的にリソースを取得する。
+ * useDenoiser v2: wasmBytes/weightBytes/exportMap are unnecessary.
+ * Simply specifying baseUrl lets loadModel fetch resources automatically.
  */
 import React, { useRef, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -69,7 +69,7 @@ function TestApp() {
 
 async function main() {
   const statusEl = document.getElementById('status')!;
-  statusEl.textContent = 'React レンダリング中...';
+  statusEl.textContent = 'React rendering...';
 
   const root = createRoot(document.getElementById('root')!);
   root.render(React.createElement(TestApp));

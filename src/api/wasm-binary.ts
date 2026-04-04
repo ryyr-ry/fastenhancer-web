@@ -1,25 +1,25 @@
 /**
- * wasm-binary.ts — WASMバイナリのパス生成
+ * wasm-binary.ts — WASM binary path generation
  *
- * AudioWorkletはEmscripten glueを実行できないため、
- * 生の.wasmバイナリを直接WebAssembly.instantiate()でロードする必要がある。
- * このモジュールはモデルサイズ・バリアントからWASMバイナリのURLを生成する。
+ * AudioWorklet cannot execute Emscripten glue code,
+ * so the raw .wasm binary must be loaded directly with WebAssembly.instantiate().
+ * This module generates the WASM binary URL from the model size and variant.
  *
- * 責務: パス/URL生成のみ。実際のfetchはLayer 2が行う。
+ * Responsibility: path/URL generation only. Actual fetching is handled by Layer 2.
  */
 
 import type { WasmVariant } from './wasm-loader';
 
-/** 対応するモデルサイズ */
+/** Supported model sizes */
 export type ModelSize = 'tiny' | 'base' | 'small';
 
 /**
- * WASMバイナリファイルのパスを生成する。
+ * Generates the path for a WASM binary file.
  *
- * @param modelSize - モデルサイズ ('tiny' | 'base' | 'small')
- * @param variant - WASMバリアント ('scalar' | 'simd')
- * @param baseUrl - ベースURL。省略時はファイル名のみ返す。
- * @returns WASMバイナリファイルのパスまたはURL
+ * @param modelSize - Model size ('tiny' | 'base' | 'small')
+ * @param variant - WASM variant ('scalar' | 'simd')
+ * @param baseUrl - Base URL. If omitted, only the file name is returned.
+ * @returns The WASM binary file path or URL
  */
 export function getWasmBinaryPath(
   modelSize: ModelSize,

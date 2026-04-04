@@ -2,16 +2,17 @@ import { describe, it, expect } from 'vitest';
 import { hannWindow } from '../../../src/engine/fft.js';
 
 /**
- * T-14対応: COLA(Constant Overlap-Add)条件テスト
+ * T-14 support: COLA (Constant Overlap-Add) condition tests
  *
- * 本テストはTypeScript参照実装 (src/engine/fft.ts) の hannWindow を検証する。
- * WASM/C実装のCOLA正しさは以下で検証される:
- *   - C native: tests/engine/test_stft.c (Hann窓・overlap-add)
- *   - WASM: tests/wasm/golden-vectors.test.ts (全パイプライン PyTorch一致)
- *   - WASM: tests/wasm/wasm-properties.test.ts (フレーム境界不連続検査)
+ * This test verifies hannWindow in the TypeScript reference implementation
+ * (src/engine/fft.ts).
+ * COLA correctness in the WASM/C implementation is verified by:
+ *   - C native: tests/engine/test_stft.c (Hann window / overlap-add)
+ *   - WASM: tests/wasm/golden-vectors.test.ts (full pipeline matches PyTorch)
+ *   - WASM: tests/wasm/wasm-properties.test.ts (frame-boundary discontinuity check)
  */
-describe('COLA条件', () => {
-  it('periodic Hann窓 + hop=N/2 で overlap-add 合計が全位置で 1.0', () => {
+describe('COLA condition', () => {
+  it('keeps the overlap-add sum at 1.0 at every position for a periodic Hann window + hop=N/2', () => {
     const N = 1024;
     const hop = N / 2;
     const w = hannWindow(N);
@@ -26,7 +27,7 @@ describe('COLA条件', () => {
       }
     }
 
-    // 定常領域(最初と最後のhopを除く中央部分)で合計が1.0であること
+    // The sum should be 1.0 in the steady region (the center excluding the first and last hop)
     const startSteady = hop;
     const endSteady = totalLen - hop;
     for (let i = startSteady; i < endSteady; i++) {
@@ -34,7 +35,7 @@ describe('COLA条件', () => {
     }
   });
 
-  it('窓関数の隣接フレーム合計: w[n] + w[n + hop] = 1.0', () => {
+  it('satisfies neighboring-frame window sum: w[n] + w[n + hop] = 1.0', () => {
     const N = 1024;
     const hop = N / 2;
     const w = hannWindow(N);
@@ -44,7 +45,7 @@ describe('COLA条件', () => {
     }
   });
 
-  it('小さいウィンドウサイズでもCOLA成立: N=256, hop=128', () => {
+  it('still satisfies COLA with a small window size: N=256, hop=128', () => {
     const N = 256;
     const hop = N / 2;
     const w = hannWindow(N);

@@ -1,19 +1,19 @@
 /**
- * simd-detect.test.ts — WASM SIMDランタイム検出のテスト
+ * simd-detect.test.ts — tests for WASM SIMD runtime detection
  *
- * A3レビュー指摘対応: SIMDサポートをランタイムで検出し、
- * 非対応ブラウザではscalar版にフォールバックする仕組みのテスト。
+ * Covers the A3 review feedback: detect SIMD support at runtime and
+ * fall back to the scalar build in unsupported browsers.
  */
 import { describe, it, expect } from 'vitest';
 import { detectSimdSupport, getSimdTestBytes } from '../../../src/api/simd-detect';
 
 describe('detectSimdSupport', () => {
-  it('boolean を返す', () => {
+  it('returns a boolean', () => {
     const result = detectSimdSupport();
     expect(typeof result).toBe('boolean');
   });
 
-  it('Node.js環境ではWebAssembly.validateが存在すれば動作する', () => {
+  it('works in Node.js when WebAssembly.validate exists', () => {
     const result = detectSimdSupport();
     const hasValidate = typeof WebAssembly !== 'undefined' && typeof WebAssembly.validate === 'function';
     if (hasValidate) {
@@ -24,7 +24,7 @@ describe('detectSimdSupport', () => {
     }
   });
 
-  it('WebAssembly.validateが例外を投げた場合はfalseを返す', () => {
+  it('returns false when WebAssembly.validate throws', () => {
     const originalValidate = WebAssembly.validate;
     try {
       (WebAssembly as any).validate = () => { throw new Error('not supported'); };
@@ -34,7 +34,7 @@ describe('detectSimdSupport', () => {
     }
   });
 
-  it('WebAssembly.validateがfalseを返した場合はfalseを返す', () => {
+  it('returns false when WebAssembly.validate returns false', () => {
     const originalValidate = WebAssembly.validate;
     try {
       (WebAssembly as any).validate = () => false;
@@ -44,7 +44,7 @@ describe('detectSimdSupport', () => {
     }
   });
 
-  it('WebAssemblyオブジェクトが存在しない場合はfalseを返す', () => {
+  it('returns false when the WebAssembly object does not exist', () => {
     const originalWasm = globalThis.WebAssembly;
     try {
       (globalThis as any).WebAssembly = undefined;
@@ -56,21 +56,21 @@ describe('detectSimdSupport', () => {
 });
 
 describe('getSimdTestBytes', () => {
-  it('Uint8Arrayを返す', () => {
+  it('returns a Uint8Array', () => {
     const bytes = getSimdTestBytes();
     expect(bytes).toBeInstanceOf(Uint8Array);
   });
 
-  it('有効なWASMモジュールバイナリである', () => {
+  it('is a valid WASM module binary', () => {
     const bytes = getSimdTestBytes();
-    // WASMマジックナンバー: \0asm
+    // WASM magic number: \0asm
     expect(bytes[0]).toBe(0x00);
     expect(bytes[1]).toBe(0x61); // 'a'
     expect(bytes[2]).toBe(0x73); // 's'
     expect(bytes[3]).toBe(0x6d); // 'm'
   });
 
-  it('呼び出しごとに新しいインスタンスを返す', () => {
+  it('returns a new instance on every call', () => {
     const a = getSimdTestBytes();
     const b = getSimdTestBytes();
     expect(a).not.toBe(b);

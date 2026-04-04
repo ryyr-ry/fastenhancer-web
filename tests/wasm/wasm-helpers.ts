@@ -1,13 +1,13 @@
 /**
- * wasm-helpers.ts — WASMテスト用ヘルパー
+ * wasm-helpers.ts — helpers for WASM tests
  *
- * Emscriptenモジュールのロード、重みロード、フレーム処理を
- * テストコードから簡潔に呼び出すためのユーティリティ。
+ * Utilities that let test code call Emscripten module loading,
+ * weight loading, and frame processing concisely.
  */
 import fs from 'fs';
 import path from 'path';
 
-/** Emscriptenモジュールインスタンスの型 */
+/** Type for an Emscripten module instance */
 export interface EmscriptenModule {
   _malloc(size: number): number;
   _free(ptr: number): void;
@@ -24,13 +24,13 @@ export interface EmscriptenModule {
   HEAPF32: Float32Array;
 }
 
-/** モデル・バリアント指定 */
+/** Model and variant selection */
 export type ModelSize = 'tiny' | 'base' | 'small';
 export type Variant = 'scalar' | 'simd';
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..');
 
-/** Emscriptenモジュールをロードする */
+/** Loads an Emscripten module */
 export async function loadWasmModule(
   model: ModelSize,
   variant: Variant,
@@ -40,7 +40,7 @@ export async function loadWasmModule(
   return factory() as Promise<EmscriptenModule>;
 }
 
-/** 重みファイルをWASMメモリにロードしてポインタを返す */
+/** Loads a weight file into WASM memory and returns its pointer */
 export function loadWeights(
   module: EmscriptenModule,
   model: ModelSize,
@@ -56,7 +56,7 @@ export function loadWeights(
   return { ptr, len: data.length };
 }
 
-/** golden vectorファイルを読み込む */
+/** Loads a golden vector file */
 export function loadGoldenVectors(model: ModelSize): {
   input: Float32Array;
   output: Float32Array;
@@ -72,7 +72,7 @@ export function loadGoldenVectors(model: ModelSize): {
   };
 }
 
-/** 全フレームを処理して出力を返す */
+/** Processes all frames and returns the output */
 export function processAllFrames(
   module: EmscriptenModule,
   state: number,
@@ -95,7 +95,7 @@ export function processAllFrames(
   return output;
 }
 
-/** MSEを計算する（長さ不一致は事前にassertすること） */
+/** Calculates MSE (assert matching lengths beforehand) */
 export function computeMSE(a: Float32Array, b: Float32Array): number {
   if (a.length !== b.length) {
     throw new Error(`Length mismatch: a.length=${a.length}, b.length=${b.length}`);
@@ -109,7 +109,7 @@ export function computeMSE(a: Float32Array, b: Float32Array): number {
   return sum / len;
 }
 
-/** 最大絶対誤差を計算する（長さ不一致は事前にassertすること） */
+/** Calculates maximum absolute error (assert matching lengths beforehand) */
 export function computeMaxAbsDiff(a: Float32Array, b: Float32Array): number {
   if (a.length !== b.length) {
     throw new Error(`Length mismatch: a.length=${a.length}, b.length=${b.length}`);

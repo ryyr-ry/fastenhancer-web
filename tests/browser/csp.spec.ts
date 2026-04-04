@@ -3,16 +3,16 @@ import { test, expect } from '@playwright/test';
 const BASE_URL = 'http://localhost:3457';
 
 /**
- * CSP検証: unsafe-eval なしでライブラリが動作することを確認
+ * CSP validation: verify that the library works without unsafe-eval
  *
- * ポリシー:
+ * Policy:
  *   script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'
  *   worker-src 'self'
  *   connect-src 'self'
  *
- * unsafe-inline はテストページのインラインスクリプト用。
- * wasm-unsafe-eval はWebAssembly.instantiate()用。
- * unsafe-eval は含めない → eval()/new Function() を使っていないことを保証。
+ * unsafe-inline is for inline scripts on the test page.
+ * wasm-unsafe-eval is for WebAssembly.instantiate().
+ * unsafe-eval is intentionally omitted to guarantee that eval()/new Function() are not used.
  */
 const CSP_POLICY = [
   "default-src 'none'",
@@ -23,8 +23,8 @@ const CSP_POLICY = [
   "img-src 'self'",
 ].join('; ');
 
-test.describe('CSP互換性検証', () => {
-  test('unsafe-eval なしでAudioWorklet + WASM初期化が成功する', async ({ page }) => {
+test.describe('CSP compatibility validation', () => {
+  test('succeeds in AudioWorklet + WASM initialization without unsafe-eval', async ({ page }) => {
     const cspViolations: string[] = [];
     const pageErrors: string[] = [];
 
@@ -68,7 +68,7 @@ test.describe('CSP互換性検証', () => {
     expect(logContent).toContain('hasProcessedFrames');
   });
 
-  test('unsafe-eval なしでStreamDenoiser生成が成功する', async ({ page }) => {
+  test('succeeds in StreamDenoiser creation without unsafe-eval', async ({ page }) => {
     const cspViolations: string[] = [];
     const pageErrors: string[] = [];
 
@@ -110,8 +110,8 @@ test.describe('CSP互換性検証', () => {
     expect(content).toContain('[PASS]');
   });
 
-  test('wasm-unsafe-eval なしではWASMインスタンス化がブロックされる', async ({ page, browserName }) => {
-    test.skip(browserName !== 'chromium', 'CSP wasm-unsafe-evalの強制はChromium固有の挙動');
+  test('blocks WASM instantiation without wasm-unsafe-eval', async ({ page, browserName }) => {
+    test.skip(browserName !== 'chromium', 'Enforcement of CSP wasm-unsafe-eval is Chromium-specific behavior');
     const STRICT_CSP = [
       "default-src 'none'",
       "script-src 'self' 'unsafe-inline'",

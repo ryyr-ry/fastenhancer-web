@@ -2,12 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { getModels, recommendModel } from '../../../src/api/models.js';
 
 describe('getModels', () => {
-  it('3つのモデル情報を返す', () => {
+  it('returns information for 3 models', () => {
     const models = getModels();
     expect(models).toHaveLength(3);
   });
 
-  it('各モデルにid, label, params, wasmSizeKB, hopSize, description がある', () => {
+  it('includes id, label, params, wasmSizeKB, hopSize, and description on each model', () => {
     const models = getModels();
     for (const m of models) {
       expect(m).toHaveProperty('id');
@@ -19,20 +19,20 @@ describe('getModels', () => {
     }
   });
 
-  it('tiny, base, small の順で返される', () => {
+  it('returns models in tiny, base, small order', () => {
     const models = getModels();
     expect(models[0].id).toBe('tiny');
     expect(models[1].id).toBe('base');
     expect(models[2].id).toBe('small');
   });
 
-  it('パラメータ数が昇順', () => {
+  it('orders parameter counts in ascending order', () => {
     const models = getModels();
     expect(models[0].params).toBeLessThan(models[1].params);
     expect(models[1].params).toBeLessThan(models[2].params);
   });
 
-  it('hopSizeは全モデル512', () => {
+  it('uses hopSize 512 for all models', () => {
     const models = getModels();
     for (const m of models) {
       expect(m.hopSize).toBe(512);
@@ -41,34 +41,34 @@ describe('getModels', () => {
 });
 
 describe('recommendModel', () => {
-  it('引数なしでsmallを推奨', () => {
+  it('recommends small with no arguments', () => {
     const rec = recommendModel();
     expect(rec.id).toBe('small');
   });
 
-  it('priority=quality でsmallを推奨', () => {
+  it('recommends small for priority=quality', () => {
     const rec = recommendModel({ priority: 'quality' });
     expect(rec.id).toBe('small');
   });
 
-  it('priority=speed でtinyを推奨', () => {
+  it('recommends tiny for priority=speed', () => {
     const rec = recommendModel({ priority: 'speed' });
     expect(rec.id).toBe('tiny');
   });
 
-  it('priority=balanced でbaseを推奨', () => {
+  it('recommends base for priority=balanced', () => {
     const rec = recommendModel({ priority: 'balanced' });
     expect(rec.id).toBe('base');
   });
 
-  it('推奨結果にreasonが含まれる', () => {
+  it('includes a reason in the recommendation result', () => {
     const rec = recommendModel();
     expect(rec).toHaveProperty('reason');
     expect(typeof rec.reason).toBe('string');
     expect(rec.reason.length).toBeGreaterThan(0);
   });
 
-  it('不正なpriorityでValidationError', () => {
+  it('throws ValidationError for an invalid priority', () => {
     expect(() => recommendModel({ priority: 'invalid' as any })).toThrow();
   });
 });

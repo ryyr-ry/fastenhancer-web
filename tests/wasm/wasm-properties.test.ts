@@ -1,15 +1,16 @@
 /**
- * wasm-properties.test.ts — WASM経由のCOLA/圧縮プロパティ検証
+ * wasm-properties.test.ts — COLA/compression property verification through WASM
  *
- * tests/unit/engine/cola.test.ts と compression-extended.test.ts は
- * TypeScript参照実装のみを検証する。本テストは同等のプロパティを
- * 実際のWASMモジュール経由で検証し、C実装の正しさを保証する。
+ * tests/unit/engine/cola.test.ts and compression-extended.test.ts verify
+ * only the TypeScript reference implementation. This test verifies the
+ * equivalent properties through the actual WASM module to guarantee the
+ * correctness of the C implementation.
  *
- * 検証チェーン全体:
- *   C native: test_stft.c (COLA), test_compression.c (圧縮)
- *   WASM: golden-vectors.test.ts (全パイプライン PyTorch一致)
- *   WASM: wasm-differential.test.ts (C native ↔ WASM差分)
- *   WASM: 本テスト (COLA/圧縮の単体プロパティ)
+ * Full verification chain:
+ *   C native: test_stft.c (COLA), test_compression.c (compression)
+ *   WASM: golden-vectors.test.ts (full pipeline matches PyTorch)
+ *   WASM: wasm-differential.test.ts (C native ↔ WASM differences)
+ *   WASM: this test (standalone COLA/compression properties)
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -40,8 +41,8 @@ function cleanup(mod: EmscriptenModule, state: number, weightsPtr: number) {
   mod._free(weightsPtr);
 }
 
-describe('WASM COLA プロパティ', () => {
-  it('無音入力でフレーム境界に不連続なし', async () => {
+describe('WASM COLA properties', () => {
+  it('has no frame-boundary discontinuity for silent input', async () => {
     const { mod, state, hopSize, weightsPtr } = await initTinyScalar();
 
     const nFrames = 10;
@@ -61,7 +62,7 @@ describe('WASM COLA プロパティ', () => {
     cleanup(mod, state, weightsPtr);
   });
 
-  it('正弦波入力でフレーム境界の振幅変調なし', async () => {
+  it('has no frame-boundary amplitude modulation for sine-wave input', async () => {
     const { mod, state, hopSize, weightsPtr } = await initTinyScalar();
 
     const nFrames = 20;
@@ -115,8 +116,8 @@ describe('WASM COLA プロパティ', () => {
   });
 });
 
-describe('WASM 圧縮プロパティ', () => {
-  it('無音入力で出力が有限かつ低振幅', async () => {
+describe('WASM compression properties', () => {
+  it('keeps output finite and low-amplitude for silent input', async () => {
     const { mod, state, hopSize, weightsPtr } = await initTinyScalar();
 
     const silence = new Float32Array(hopSize);
@@ -141,7 +142,7 @@ describe('WASM 圧縮プロパティ', () => {
     cleanup(mod, state, weightsPtr);
   });
 
-  it('最大振幅入力で出力にNaN/Infなし', async () => {
+  it('produces no NaN/Inf for maximum-amplitude input', async () => {
     const { mod, state, hopSize, weightsPtr } = await initTinyScalar();
 
     const loud = new Float32Array(hopSize);
@@ -165,7 +166,7 @@ describe('WASM 圧縮プロパティ', () => {
     cleanup(mod, state, weightsPtr);
   });
 
-  it('DC offset入力で出力が発散しない', async () => {
+  it('does not diverge for DC-offset input', async () => {
     const { mod, state, hopSize, weightsPtr } = await initTinyScalar();
 
     const dc = new Float32Array(hopSize);

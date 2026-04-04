@@ -1,11 +1,11 @@
 /**
  * useDenoiser — React Hook for real-time noise removal (Layer 3)
  *
- * 責務: Reactライフサイクルとノイズ除去ストリームの接続管理のみ。
- * リソースロードはloadModelに、AudioWorklet処理はcreateStreamDenoiserに委譲する。
+ * Responsibility: only manages the React lifecycle and the denoising stream connection.
+ * Delegate resource loading to loadModel and AudioWorklet processing to createStreamDenoiser.
  *
- * v2: wasmBytes/weightBytes/exportMap は不要。
- * loadModel が自動的にリソースを取得し、createStreamDenoiser に渡す。
+ * v2: wasmBytes/weightBytes/exportMap are unnecessary.
+ * loadModel automatically fetches the resources and passes them to createStreamDenoiser.
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react';
@@ -23,39 +23,39 @@ export type UseDenoiserState =
   | 'destroyed';
 
 export interface UseDenoiserOptions {
-  /** 全リソースファイルのベースURL（省略時: import.meta.url自動検出） */
+  /** Base URL for all resource files (omitted: auto-detected from import.meta.url) */
   baseUrl?: string;
-  /** SIMD使用を明示指定（省略時: 自動検出） */
+  /** Explicitly specify SIMD usage (omitted: auto-detected) */
   simd?: boolean;
-  /** AudioWorklet JSファイルURL */
+  /** AudioWorklet JS file URL */
   workletUrl?: string;
-  /** 警告コールバック */
+  /** Warning callback */
   onWarning?: (message: string) => void;
-  /** エラーコールバック */
+  /** Error callback */
   onError?: (error: Error) => void;
 }
 
 export interface UseDenoiserReturn {
-  /** 現在の状態 */
+  /** Current state */
   state: UseDenoiserState;
-  /** エラー情報（error状態時のみ非null） */
+  /** Error information (non-null only in the error state) */
   error: Error | null;
-  /** ノイズ除去済み出力ストリーム（processing時のみ非null） */
+  /** Denoised output stream (non-null only while processing) */
   outputStream: MediaStream | null;
-  /** バイパスモード */
+  /** Bypass mode */
   bypass: boolean;
-  /** ノイズ除去を開始する */
+  /** Start denoising */
   start: (inputStream: MediaStream) => Promise<void>;
-  /** ノイズ除去を停止してidle状態に戻る */
+  /** Stop denoising and return to the idle state */
   stop: () => void;
-  /** バイパスモードを設定する */
+  /** Set bypass mode */
   setBypass: (value: boolean) => void;
-  /** 全リソースを解放する（再利用不可） */
+  /** Release all resources (cannot be reused) */
   destroy: () => void;
 }
 
 /**
- * React Hook: ブラウザでリアルタイムノイズ除去を行う。
+ * React Hook: performs real-time noise removal in the browser.
  *
  * @example
  * ```tsx
@@ -92,7 +92,7 @@ export function useDenoiser(
     const sd = streamDenoiserRef.current;
     if (sd) {
       try { sd.destroy(); } catch (e) {
-        console.warn('useDenoiser cleanup時のdestroy失敗:', e instanceof Error ? e.message : String(e));
+        console.warn('useDenoiser destroy failed during cleanup:', e instanceof Error ? e.message : String(e));
       }
       streamDenoiserRef.current = null;
     }
@@ -101,7 +101,7 @@ export function useDenoiser(
 
   const start = useCallback(async (inputStream: MediaStream) => {
     if (destroyedRef.current) {
-      setError(new DestroyedError('このuseDenoiserは既に破棄されています'));
+      setError(new DestroyedError('This useDenoiser instance has already been destroyed'));
       setState('error');
       return;
     }
@@ -130,7 +130,7 @@ export function useDenoiser(
 
       if (destroyedRef.current || requestIdRef.current !== thisRequestId) {
         try { sd.destroy(); } catch (e) {
-          console.warn('useDenoiser レース条件cleanup時のdestroy失敗:', e instanceof Error ? e.message : String(e));
+          console.warn('useDenoiser destroy failed during race-condition cleanup:', e instanceof Error ? e.message : String(e));
         }
         return;
       }

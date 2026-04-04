@@ -1,6 +1,7 @@
 /**
- * 1024点 Radix-2 DIT FFT / iFFT + Hann窓 (TypeScript参照実装)
- * Cエンジンの fft.c / stft.c 相当。テスト・検証用。
+ * 1024-point Radix-2 DIT FFT / iFFT + Hann window
+ * (TypeScript reference implementation)
+ * Equivalent to the C engine's fft.c / stft.c. For testing and verification.
  */
 
 export interface FftResult {
@@ -9,7 +10,7 @@ export interface FftResult {
 }
 
 /**
- * 周期的Hann窓を生成: w[n] = 0.5 * (1 - cos(2πn/N))
+ * Generate a periodic Hann window: w[n] = 0.5 * (1 - cos(2πn/N))
  */
 export function hannWindow(n: number): Float32Array {
   const w = new Float32Array(n);
@@ -21,7 +22,7 @@ export function hannWindow(n: number): Float32Array {
 }
 
 /**
- * Radix-2 DIT FFT (in-place風, 新しい配列を返す)
+ * Radix-2 DIT FFT (in-place style, returns new arrays)
  */
 export function fft(realIn: Float32Array, imagIn: Float32Array): FftResult {
   const n = realIn.length;
@@ -62,7 +63,7 @@ export function fft(realIn: Float32Array, imagIn: Float32Array): FftResult {
 }
 
 /**
- * 逆FFT: iFFT(X) = conj(FFT(conj(X))) / N
+ * Inverse FFT: iFFT(X) = conj(FFT(conj(X))) / N
  */
 export function ifft(realIn: Float32Array, imagIn: Float32Array): FftResult {
   const n = realIn.length;

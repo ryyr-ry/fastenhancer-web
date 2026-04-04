@@ -1,63 +1,63 @@
 /**
- * stream-denoiser.ts — AudioWorklet 統合 Layer 2 API
+ * stream-denoiser.ts — AudioWorklet-integrated Layer 2 API
  *
- * MediaStream 入力を受け取り、AudioWorklet 内で WASM ノイズ除去を行い、
- * クリーンな MediaStream を出力する。
+ * Accepts a MediaStream input, performs WASM noise removal inside AudioWorklet,
+ * and outputs a cleaned MediaStream.
  *
- * 責務: AudioContext/AudioWorklet/MediaStream の接続管理のみ。
- * WASM推論の詳細は processor.js (Worklet側) が担う。
+ * Responsibility: manages AudioContext/AudioWorklet/MediaStream connections only.
+ * The details of WASM inference are handled by processor.js on the worklet side.
  */
 
 import { DestroyedError, AudioContextError, WorkletError } from './errors.js';
 
-/** モデルが期待するサンプルレート (Hz) */
+/** Sample rate expected by the model (Hz) */
 const TARGET_SAMPLE_RATE = 48000;
 
-/** Worklet初期化完了を待つ最大時間 (ms) */
+/** Maximum time to wait for Worklet initialization to complete (ms) */
 const WORKLET_INIT_TIMEOUT_MS = 10_000;
 
-/** Worklet状態取得の最大待機時間 (ms) */
+/** Maximum time to wait for Worklet state retrieval (ms) */
 const WORKLET_STATE_TIMEOUT_MS = 3_000;
 
 type StreamDenoiserState = 'initializing' | 'running' | 'destroyed';
 
-/** createStreamDenoiser のオプション */
+/** Options for createStreamDenoiser */
 export interface StreamDenoiserOptions {
-  /** 入力マイクストリーム */
+  /** Input microphone stream */
   inputStream: MediaStream;
-  /** WASM SINGLE_FILE から抽出したバイナリ（ArrayBuffer） */
+  /** Binary extracted from WASM SINGLE_FILE (ArrayBuffer) */
   wasmBytes: ArrayBuffer;
-  /** 重みバイナリ（ArrayBuffer） */
+  /** Weight binary (ArrayBuffer) */
   weightBytes: ArrayBuffer;
-  /** WASMエクスポートマップ */
+  /** WASM export map */
   exportMap: Record<string, string>;
-  /** モデルサイズID (0=tiny, 1=base, 2=small) */
+  /** Model size ID (0=tiny, 1=base, 2=small) */
   modelSize: number;
-  /** AudioWorklet JSファイルのURL（省略時はデフォルト） */
+  /** URL of the AudioWorklet JS file (default is used if omitted) */
   workletUrl?: string;
-  /** 警告コールバック */
+  /** Warning callback */
   onWarning?: (message: string) => void;
 }
 
-/** createStreamDenoiser の返却型 */
+/** Return type of createStreamDenoiser */
 export interface StreamDenoiser {
-  /** クリーンな出力ストリーム */
+  /** Clean output stream */
   readonly outputStream: MediaStream;
-  /** 現在の状態 */
+  /** Current state */
   readonly state: StreamDenoiserState;
-  /** バイパスモード */
+  /** Bypass mode */
   bypass: boolean;
-  /** AGC有効/無効 */
+  /** AGC enabled/disabled */
   agcEnabled: boolean;
-  /** HPF有効/無効 */
+  /** HPF enabled/disabled */
   hpfEnabled: boolean;
-  /** 全リソース解放 */
+  /** Releases all resources */
   destroy(): void;
-  /** Worklet側の内部状態を問い合わせる（デバッグ・テスト用） */
+  /** Queries the internal state on the Worklet side (for debugging and testing) */
   getWorkletState(): Promise<WorkletStateResponse>;
 }
 
-/** Worklet側から返される内部状態 */
+/** Internal state returned from the Worklet side */
 export interface WorkletStateResponse {
   bypass: boolean;
   agcEnabled: boolean;
@@ -68,7 +68,7 @@ export interface WorkletStateResponse {
 }
 
 /**
- * AudioWorklet経由でリアルタイムノイズ除去を行うストリームデノイザーを生成する。
+ * Creates a stream denoiser that performs real-time noise removal through AudioWorklet.
  */
 export async function createStreamDenoiser(
   options: StreamDenoiserOptions,
@@ -88,7 +88,7 @@ export async function createStreamDenoiser(
     audioContext = new AudioContext({ sampleRate: TARGET_SAMPLE_RATE });
   } catch (err) {
     throw new AudioContextError(
-      `AudioContextの生成に失敗しました: ${err instanceof Error ? err.message : String(err)}`,
+      `Failed to create AudioContext: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 
@@ -98,7 +98,7 @@ export async function createStreamDenoiser(
     } catch (resumeErr) {
       if (onWarning) {
         onWarning(
-          `AudioContext.resume()に失敗しました（自動再生制限の可能性）: ${resumeErr instanceof Error ? resumeErr.message : String(resumeErr)}`,
+          `AudioContext.resume() failed (possibly due to autoplay restrictions): ${resumeErr instanceof Error ? resumeErr.message : String(resumeErr)}`,
         );
       }
     }
@@ -106,8 +106,8 @@ export async function createStreamDenoiser(
 
   if (audioContext.sampleRate !== TARGET_SAMPLE_RATE && onWarning) {
     onWarning(
-      `AudioContextのサンプルレートが${audioContext.sampleRate}Hzです（期待: ${TARGET_SAMPLE_RATE}Hz）。` +
-      `品質が低下する可能性があります。`,
+      `AudioContext sample rate is ${audioContext.sampleRate}Hz (expected: ${TARGET_SAMPLE_RATE}Hz).` +
+      ` Audio quality may be reduced.`,
     );
   }
 
@@ -118,7 +118,7 @@ export async function createStreamDenoiser(
   } catch (err) {
     await audioContext.close();
     throw new WorkletError(
-      `AudioWorkletの登録に失敗しました: ${err instanceof Error ? err.message : String(err)}`,
+      `Failed to register AudioWorklet: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 
@@ -139,17 +139,17 @@ export async function createStreamDenoiser(
     workletNode.connect(destination);
   } catch (err) {
     audioContext.close().catch((closeErr: unknown) => {
-      if (onWarning) onWarning(`AudioContext.close()失敗: ${closeErr instanceof Error ? closeErr.message : String(closeErr)}`);
+      if (onWarning) onWarning(`AudioContext.close() failed: ${closeErr instanceof Error ? closeErr.message : String(closeErr)}`);
     });
     throw new WorkletError(
-      `AudioWorkletノードの構築に失敗しました: ${err instanceof Error ? err.message : String(err)}`,
+      `Failed to construct AudioWorklet node: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 
   const initPromise = new Promise<void>((resolve, reject) => {
     const timeout = setTimeout(() => {
       workletNode.port.removeEventListener('message', handler);
-      reject(new WorkletError(`Worklet初期化タイムアウト（${WORKLET_INIT_TIMEOUT_MS / 1000}秒）`));
+      reject(new WorkletError(`Worklet initialization timed out (${WORKLET_INIT_TIMEOUT_MS / 1000}s)`));
     }, WORKLET_INIT_TIMEOUT_MS);
 
     const handler = (event: MessageEvent) => {
@@ -161,7 +161,7 @@ export async function createStreamDenoiser(
         clearTimeout(timeout);
         workletNode.port.removeEventListener('message', handler);
         reject(new WorkletError(
-          `Worklet初期化に失敗しました: ${event.data.message ?? '不明なエラー'}`,
+          `Worklet initialization failed: ${event.data.message ?? 'Unknown error'}`,
         ));
       }
     };
@@ -183,13 +183,13 @@ export async function createStreamDenoiser(
     await initPromise;
   } catch (err) {
     try { source.disconnect(); } catch (e: unknown) {
-      if (onWarning) onWarning(`source.disconnect()失敗: ${e instanceof Error ? e.message : String(e)}`);
+      if (onWarning) onWarning(`source.disconnect() failed: ${e instanceof Error ? e.message : String(e)}`);
     }
     try { workletNode.disconnect(); } catch (e: unknown) {
-      if (onWarning) onWarning(`workletNode.disconnect()失敗: ${e instanceof Error ? e.message : String(e)}`);
+      if (onWarning) onWarning(`workletNode.disconnect() failed: ${e instanceof Error ? e.message : String(e)}`);
     }
     audioContext.close().catch((closeErr: unknown) => {
-      if (onWarning) onWarning(`AudioContext.close()失敗: ${closeErr instanceof Error ? closeErr.message : String(closeErr)}`);
+      if (onWarning) onWarning(`AudioContext.close() failed: ${closeErr instanceof Error ? closeErr.message : String(closeErr)}`);
     });
     throw err;
   }
@@ -202,7 +202,7 @@ export async function createStreamDenoiser(
   workletNode.port.addEventListener('message', (event: MessageEvent) => {
     if (event.data?.type === 'process_error' && currentState !== 'destroyed') {
       if (options?.onWarning) {
-        options.onWarning(`Worklet処理エラー: ${event.data.message ?? '不明'}`);
+        options.onWarning(`Worklet processing error: ${event.data.message ?? 'Unknown'}`);
       }
     }
   });
@@ -221,7 +221,7 @@ export async function createStreamDenoiser(
     },
     set bypass(value: boolean) {
       if (currentState === 'destroyed') {
-        throw new DestroyedError('このStreamDenoiserは既に破棄されています');
+        throw new DestroyedError('This StreamDenoiser has already been destroyed');
       }
       bypassMode = value;
       workletNode.port.postMessage({ type: 'set_bypass', enabled: value });
@@ -232,7 +232,7 @@ export async function createStreamDenoiser(
     },
     set agcEnabled(value: boolean) {
       if (currentState === 'destroyed') {
-        throw new DestroyedError('このStreamDenoiserは既に破棄されています');
+        throw new DestroyedError('This StreamDenoiser has already been destroyed');
       }
       agcMode = value;
       workletNode.port.postMessage({ type: 'set_agc', enabled: value });
@@ -243,7 +243,7 @@ export async function createStreamDenoiser(
     },
     set hpfEnabled(value: boolean) {
       if (currentState === 'destroyed') {
-        throw new DestroyedError('このStreamDenoiserは既に破棄されています');
+        throw new DestroyedError('This StreamDenoiser has already been destroyed');
       }
       hpfMode = value;
       workletNode.port.postMessage({ type: 'set_hpf', enabled: value });
@@ -255,10 +255,10 @@ export async function createStreamDenoiser(
       currentState = 'destroyed';
 
       try { source.disconnect(); } catch (e) {
-        if (onWarning) onWarning(`destroy時source.disconnect()失敗: ${e instanceof Error ? e.message : String(e)}`);
+        if (onWarning) onWarning(`source.disconnect() failed during destroy: ${e instanceof Error ? e.message : String(e)}`);
       }
       try { workletNode.disconnect(); } catch (e) {
-        if (onWarning) onWarning(`destroy時workletNode.disconnect()失敗: ${e instanceof Error ? e.message : String(e)}`);
+        if (onWarning) onWarning(`workletNode.disconnect() failed during destroy: ${e instanceof Error ? e.message : String(e)}`);
       }
 
       const destroyAckTimeout = 2000;
@@ -280,7 +280,7 @@ export async function createStreamDenoiser(
 
       ackPromise.then(() => {
         audioContext.close().catch((e) => {
-          if (onWarning) onWarning(`destroy時AudioContext.close()失敗: ${e instanceof Error ? e.message : String(e)}`);
+          if (onWarning) onWarning(`AudioContext.close() failed during destroy: ${e instanceof Error ? e.message : String(e)}`);
         });
       });
     },
@@ -288,14 +288,14 @@ export async function createStreamDenoiser(
     getWorkletState(): Promise<WorkletStateResponse> {
       if (currentState === 'destroyed') {
         return Promise.reject(
-          new DestroyedError('このStreamDenoiserは既に破棄されています'),
+          new DestroyedError('This StreamDenoiser has already been destroyed'),
         );
       }
       const requestId = `state_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       return new Promise<WorkletStateResponse>((resolve, reject) => {
         const timeout = setTimeout(() => {
           workletNode.port.removeEventListener('message', handler);
-          reject(new WorkletError(`Worklet状態取得タイムアウト（${WORKLET_STATE_TIMEOUT_MS / 1000}秒）`));
+          reject(new WorkletError(`Worklet state retrieval timed out (${WORKLET_STATE_TIMEOUT_MS / 1000}s)`));
         }, WORKLET_STATE_TIMEOUT_MS);
 
         const handler = (event: MessageEvent) => {

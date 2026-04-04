@@ -15,15 +15,15 @@ function freshModel(): Model {
   return createRealModel(sharedWasm, 'tiny');
 }
 
-describe('ライフサイクル堅牢性（実WASM）', () => {
-  it('二重destroyでthrowしない', async () => {
+describe('Lifecycle robustness (real WASM)', () => {
+  it('does not throw on double destroy', async () => {
     const d = await createDenoiser({ model: freshModel(), weightData: sharedWeightData });
     d.destroy();
     expect(() => d.destroy()).not.toThrow();
     expect(d.state).toBe('destroyed');
   });
 
-  it('destroy後の全操作でthrow', async () => {
+  it('throws on every operation after destroy', async () => {
     const d = await createDenoiser({ model: freshModel(), weightData: sharedWeightData });
     d.destroy();
     expect(() => d.processFrame(new Float32Array(512))).toThrow();
@@ -32,7 +32,7 @@ describe('ライフサイクル堅牢性（実WASM）', () => {
     expect(() => { d.hpfEnabled = false; }).toThrow();
   });
 
-  it('高速生成・破棄サイクル(10回)', async () => {
+  it('survives rapid create/destroy cycles (10 times)', async () => {
     for (let i = 0; i < 10; i++) {
       const d = await createDenoiser({ model: freshModel(), weightData: sharedWeightData });
       expect(d.state).toBe('ready');
@@ -41,7 +41,7 @@ describe('ライフサイクル堅牢性（実WASM）', () => {
     }
   });
 
-  it('生成→処理→破棄サイクル(5回)', async () => {
+  it('survives create → process → destroy cycles (5 times)', async () => {
     for (let i = 0; i < 5; i++) {
       const d = await createDenoiser({ model: freshModel(), weightData: sharedWeightData });
       const input = new Float32Array(512).fill(0.1 * (i + 1));
@@ -55,7 +55,7 @@ describe('ライフサイクル堅牢性（実WASM）', () => {
     }
   });
 
-  it('destroyイベントとstatechangeイベントが両方発火', async () => {
+  it('fires both destroy and statechange events', async () => {
     const d = await createDenoiser({ model: freshModel(), weightData: sharedWeightData });
     let destroyFired = false;
     const stateChanges: string[] = [];
@@ -66,21 +66,21 @@ describe('ライフサイクル堅牢性（実WASM）', () => {
     expect(stateChanges).toContain('destroyed');
   });
 
-  it('Symbol.disposeによるリソース解放後にstate=destroyed', async () => {
+  it('sets state=destroyed after cleanup via Symbol.dispose', async () => {
     const d = await createDenoiser({ model: freshModel(), weightData: sharedWeightData });
     d[Symbol.dispose]();
     expect(d.state).toBe('destroyed');
     expect(() => d.processFrame(new Float32Array(512))).toThrow();
   });
 
-  it('破損weightDataでModelInitErrorがthrow', async () => {
+  it('throws ModelInitError for corrupted weightData', async () => {
     const corrupted = new ArrayBuffer(24);
     await expect(
       createDenoiser({ model: freshModel(), weightData: corrupted }),
     ).rejects.toThrow();
   });
 
-  it('不正なCRC32のweightDataでModelInitErrorがthrow', async () => {
+  it('throws ModelInitError for weightData with invalid CRC32', async () => {
     const valid = new Uint8Array(sharedWeightData);
     const tampered = new Uint8Array(valid.length);
     tampered.set(valid);
@@ -90,7 +90,7 @@ describe('ライフサイクル堅牢性（実WASM）', () => {
     ).rejects.toThrow();
   });
 
-  it('ヒープ超過サイズのweightDataでModelInitErrorがthrow', async () => {
+  it('throws ModelInitError for weightData that exceeds heap size', async () => {
     const huge = new ArrayBuffer(2 * 1024 * 1024);
     await expect(
       createDenoiser({ model: freshModel(), weightData: huge }),

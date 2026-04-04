@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 const BASE_URL = 'http://localhost:3457';
 
-test('AudioWorklet WASM初期化と音声処理', async ({ page }) => {
+test('AudioWorklet WASM initialization and audio processing', async ({ page }) => {
   const logs: string[] = [];
   const errors: string[] = [];
 
@@ -31,7 +31,7 @@ test('AudioWorklet WASM初期化と音声処理', async ({ page }) => {
   expect(logContent).toContain('noInf');
 });
 
-test('AudioWorklet destroyの安全性', async ({ page }) => {
+test('AudioWorklet destroy safety', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (err) => errors.push(err.message));
 
@@ -51,7 +51,7 @@ test('AudioWorklet destroyの安全性', async ({ page }) => {
   expect(errors).toHaveLength(0);
 });
 
-test('AudioWorklet パフォーマンス計測', async ({ page }) => {
+test('AudioWorklet performance measurement', async ({ page }) => {
   const logs: string[] = [];
   page.on('console', (msg) => logs.push(msg.text()));
 

@@ -1,20 +1,20 @@
 /**
- * wasm-loader.ts — WASMバリアント選択
+ * wasm-loader.ts — WASM variant selection
  *
- * SIMD検出結果に基づき、scalar / simd のどちらの
- * WASMビルドをロードするか決定する。
+ * Chooses which WASM build to load, scalar or simd,
+ * based on the SIMD detection result.
  *
- * 責務: バリアント選択のみ。実際のWASMロードはLayer 1/2が行う。
+ * Responsibility: variant selection only. Actual WASM loading is handled by Layer 1/2.
  */
 
-/** WASMビルドバリアント */
+/** WASM build variant */
 export type WasmVariant = 'scalar' | 'simd';
 
 /**
- * SIMD対応状況に応じてWASMバリアントを選択する。
+ * Selects a WASM variant based on SIMD support.
  *
- * @param simdSupported - SIMD検出結果（detectSimdSupport()の戻り値）
- * @returns ロードすべきWASMバリアント
+ * @param simdSupported - SIMD detection result (return value of detectSimdSupport())
+ * @returns The WASM variant to load
  */
 export function selectWasmVariant(simdSupported: boolean): WasmVariant {
   return simdSupported ? 'simd' : 'scalar';

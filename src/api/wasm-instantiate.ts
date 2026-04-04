@@ -1,24 +1,24 @@
 /**
- * wasm-instantiate.ts — WASMバイナリの手動インスタンス化
+ * wasm-instantiate.ts — Manual WASM binary instantiation
  *
- * AudioWorklet内(processor.js)と同じ手法で、
- * Emscripten JS glue(.js)を使わずに .wasm バイナリから
- * WasmInstance互換オブジェクトを生成する。
+ * Uses the same approach as inside AudioWorklet (processor.js)
+ * to create a WasmInstance-compatible object directly from the .wasm binary
+ * without using Emscripten JS glue (.js).
  *
- * 責務: WebAssembly.Module/Instance の生成 + エクスポートマッピング のみ。
+ * Responsibility: creating WebAssembly.Module/Instance and export mapping only.
  */
 
 import type { WasmInstance } from './index.js';
 import { WasmLoadError } from './errors.js';
 
 /**
- * .wasm バイナリとエクスポートマップから WasmInstance を生成する。
+ * Creates a WasmInstance from a .wasm binary and export map.
  *
- * processor.js と同じロジックだが、メインスレッド用に async 版を提供。
+ * Uses the same logic as processor.js, but provides an async version for the main thread.
  *
- * @param wasmBytes - コンパイル済み .wasm バイナリ
- * @param exportMap - エクスポート名マッピング（readable → minified）
- * @returns WasmInstance 互換オブジェクト
+ * @param wasmBytes - Compiled .wasm binary
+ * @param exportMap - Export name mapping (readable → minified)
+ * @returns A WasmInstance-compatible object
  */
 export async function instantiateWasm(
   wasmBytes: ArrayBuffer,
@@ -29,7 +29,7 @@ export async function instantiateWasm(
     module = await WebAssembly.compile(wasmBytes);
   } catch (err) {
     throw new WasmLoadError(
-      `WASMモジュールのコンパイルに失敗しました: ${err instanceof Error ? err.message : String(err)}`,
+      `Failed to compile WASM module: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 
@@ -53,7 +53,7 @@ export async function instantiateWasm(
     instance = await WebAssembly.instantiate(module, importObject);
   } catch (err) {
     throw new WasmLoadError(
-      `WASMインスタンスの生成に失敗しました: ${err instanceof Error ? err.message : String(err)}`,
+      `Failed to instantiate WASM instance: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 
@@ -65,7 +65,7 @@ export async function instantiateWasm(
     }
   }
   if (!memory) {
-    throw new WasmLoadError('WASMモジュールからMemoryエクスポートが見つかりません');
+    throw new WasmLoadError('Memory export was not found in the WASM module');
   }
 
   const exports: Record<string, unknown> = {};

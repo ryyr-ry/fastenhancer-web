@@ -1,13 +1,14 @@
 /**
- * loader.test.ts — loadModel() 実fetch テスト
+ * loader.test.ts — real fetch tests for loadModel()
  *
- * loadModel(modelSize, { baseUrl?, simd? }) で3リソース(.wasm/.bin/.json)を一括取得し、
- * LoadedModel に wasmBytes/weightData/exportMap/createDenoiser/createStreamDenoiser を持つ。
- * キャッシュ機能: 同一引数で同一Promiseを返す。
+ * loadModel(modelSize, { baseUrl?, simd? }) fetches three resources
+ * (.wasm/.bin/.json) together, and LoadedModel contains
+ * wasmBytes/weightData/exportMap/createDenoiser/createStreamDenoiser.
+ * Cache behavior: identical arguments return the same Promise.
  *
- * vi.mock()/vi.fn() は一切使わない。
- * ローカルHTTPサーバーで dist/wasm/ と weights/ をフラットに配信し、
- * 実fetchで検証する。
+ * Does not use vi.mock()/vi.fn() at all.
+ * Verifies behavior with a local HTTP server that serves dist/wasm/ and
+ * weights/ as a flat directory structure via real fetch.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'node:http';
@@ -19,8 +20,8 @@ import { ValidationError, WasmLoadError } from '../../../src/api/errors.js';
 const ROOT = path.resolve(import.meta.dirname, '..', '..', '..');
 
 /**
- * dist/wasm/ と weights/ を統合フラットに配信する HTTP サーバー。
- * baseUrl 指定時のCDN配信シミュレーション。
+ * HTTP server that serves dist/wasm/ and weights/ together as a flat structure.
+ * Simulates CDN delivery when baseUrl is specified.
  */
 function createFlatServer(): Promise<{ server: http.Server; port: number }> {
   return new Promise((resolve, reject) => {
@@ -95,20 +96,20 @@ describe('loadModel', () => {
   );
 
   /* ================================================================
-   * 入力検証
+   * Input validation
    * ================================================================ */
 
-  describe('入力検証', () => {
-    it('不正なモデルサイズで ValidationError', () => {
+  describe('Input validation', () => {
+    it('throws ValidationError for an invalid model size', () => {
       expect(() => loadModel('invalid' as any, { baseUrl })).toThrow(
         ValidationError,
       );
     });
 
-    it('ValidationError メッセージに不正なサイズ名を含む', async () => {
+    it('includes the invalid size name in the ValidationError message', async () => {
       try {
         await loadModel('huge' as any, { baseUrl });
-        expect.unreachable('ValidationError が throw されるべき');
+        expect.unreachable('ValidationError should be thrown');
       } catch (err) {
         expect(err).toBeInstanceOf(ValidationError);
         expect((err as Error).message).toContain('huge');
@@ -117,11 +118,11 @@ describe('loadModel', () => {
   });
 
   /* ================================================================
-   * 正常ロード — メタデータ
+   * Successful loading — metadata
    * ================================================================ */
 
-  describe('正常ロード', () => {
-    it('tiny モデルの正しいメタデータを持つ LoadedModel を返す', async () => {
+  describe('Successful loading', () => {
+    it('returns a LoadedModel with correct metadata for the tiny model', async () => {
       const model = await loadModel('tiny', { baseUrl, simd: true });
 
       expect(model.size).toBe('tiny');
@@ -132,7 +133,7 @@ describe('loadModel', () => {
       expect(model.modelSizeId).toBe(0);
     });
 
-    it('wasmBytes が .wasm ファイルサイズと一致する ArrayBuffer', async () => {
+    it('returns wasmBytes as an ArrayBuffer matching the .wasm file size', async () => {
       const model = await loadModel('tiny', { baseUrl, simd: true });
       const expectedSize = fs.statSync(
         path.join(ROOT, 'dist', 'wasm', 'fastenhancer-tiny-simd.wasm'),
@@ -142,7 +143,7 @@ describe('loadModel', () => {
       expect(model.wasmBytes.byteLength).toBe(expectedSize);
     });
 
-    it('weightData が .bin ファイルサイズと一致する ArrayBuffer', async () => {
+    it('returns weightData as an ArrayBuffer matching the .bin file size', async () => {
       const model = await loadModel('tiny', { baseUrl, simd: true });
       const expectedSize = fs.statSync(
         path.join(ROOT, 'weights', 'fe_tiny_48k.bin'),
@@ -152,7 +153,7 @@ describe('loadModel', () => {
       expect(model.weightData.byteLength).toBe(expectedSize);
     });
 
-    it('exportMap が正しいキーを含む非空 Record', async () => {
+    it('returns a non-empty exportMap Record containing the correct keys', async () => {
       const model = await loadModel('tiny', { baseUrl, simd: true });
 
       expect(model.exportMap).toBeDefined();
@@ -177,7 +178,7 @@ describe('loadModel', () => {
       }
     });
 
-    it('createDenoiser / createStreamDenoiser / wasmFactory が関数', async () => {
+    it('exposes createDenoiser / createStreamDenoiser / wasmFactory as functions', async () => {
       const model = await loadModel('tiny', { baseUrl, simd: true });
 
       expect(typeof model.createDenoiser).toBe('function');
@@ -185,7 +186,7 @@ describe('loadModel', () => {
       expect(typeof model.wasmFactory).toBe('function');
     });
 
-    it('base モデルを正しくロード', async () => {
+    it('loads the base model correctly', async () => {
       const model = await loadModel('base', { baseUrl, simd: true });
 
       expect(model.size).toBe('base');
@@ -202,7 +203,7 @@ describe('loadModel', () => {
       );
     });
 
-    it('small モデルを正しくロード', async () => {
+    it('loads the small model correctly', async () => {
       const model = await loadModel('small', { baseUrl, simd: true });
 
       expect(model.size).toBe('small');
@@ -219,7 +220,7 @@ describe('loadModel', () => {
       );
     });
 
-    it('simd: false で scalar バリアント選択', async () => {
+    it('selects the scalar variant when simd: false', async () => {
       const model = await loadModel('tiny', { baseUrl, simd: false });
 
       expect(model.variant).toBe('scalar');
@@ -232,11 +233,11 @@ describe('loadModel', () => {
   });
 
   /* ================================================================
-   * キャッシュ
+   * Cache
    * ================================================================ */
 
-  describe('キャッシュ', () => {
-    it('同一引数で同一Promise、異なる引数で異なるPromise', () => {
+  describe('Cache', () => {
+    it('returns the same Promise for identical arguments and different Promises for different arguments', () => {
       const p1 = loadModel('tiny', { baseUrl, simd: true });
       const p2 = loadModel('tiny', { baseUrl, simd: true });
       const p3 = loadModel('base', { baseUrl, simd: true });
@@ -249,11 +250,11 @@ describe('loadModel', () => {
   });
 
   /* ================================================================
-   * エラーハンドリング
+   * Error handling
    * ================================================================ */
 
-  describe('エラーハンドリング', () => {
-    it('到達不能な baseUrl で WasmLoadError', async () => {
+  describe('Error handling', () => {
+    it('throws WasmLoadError for an unreachable baseUrl', async () => {
       await expect(
         loadModel('tiny', {
           baseUrl: 'http://127.0.0.1:1/',
@@ -262,7 +263,7 @@ describe('loadModel', () => {
       ).rejects.toThrow(WasmLoadError);
     });
 
-    it('存在しないパスの baseUrl で WasmLoadError', async () => {
+    it('throws WasmLoadError for a baseUrl pointing to a missing path', async () => {
       await expect(
         loadModel('tiny', {
           baseUrl: `http://localhost:${port}/nonexistent_dir/`,

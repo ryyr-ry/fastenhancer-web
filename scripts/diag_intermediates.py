@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-diag_intermediates.py — PyTorch推論の各ステージ中間値を出力
+diag_intermediates.py — Export intermediate values from each PyTorch inference stage
 
-C エンジンとの比較用。各パイプラインステージの出力を保存する。
+Used for comparison against the C engine. Saves the output of each pipeline stage.
 """
 
 import sys
@@ -66,12 +66,12 @@ def print_first(name, arr, n=5):
 
 
 def diag_stft_frame0(model, input_np):
-    """Frame 0 の STFT 出力をPyTorchとCストリーミング方式の両方で計算"""
+    """Compute frame 0 STFT output using both PyTorch and C-style streaming."""
     stft_module = model.stft
 
-    print("\n=== STFT Frame 0 診断 ===")
+    print("\n=== STFT Frame 0 Diagnostics ===")
 
-    # PyTorchのcenter=True STFT (モデル全体で使用される方式)
+    # PyTorch center=True STFT (the method used by the full model)
     x = torch.from_numpy(input_np).unsqueeze(0)  # [1, N_SAMPLES]
     with torch.no_grad():
         spec_full = torch.stft(
@@ -91,9 +91,9 @@ def diag_stft_frame0(model, input_np):
     print_first("re", frame0_re)
     print_first("im", frame0_im)
 
-    # Cストリーミング方式のSTFT: [zeros(512) | input[0:512]] にHann窓
+    # C-style streaming STFT: apply a Hann window to [zeros(512) | input[0:512]]
     c_buffer = np.zeros(N_FFT, dtype=np.float32)
-    c_buffer[HOP_SIZE:] = input_np[:HOP_SIZE]  # 後半にinput
+    c_buffer[HOP_SIZE:] = input_np[:HOP_SIZE]  # Input in the second half
 
     hann = 0.5 - 0.5 * np.cos(2 * np.pi * np.arange(N_FFT) / N_FFT)
     hann = hann.astype(np.float32)
@@ -103,25 +103,25 @@ def diag_stft_frame0(model, input_np):
     c_re = c_spec.real.astype(np.float32)
     c_im = c_spec.imag.astype(np.float32)
 
-    print(f"\nC ストリーミング方式 STFT frame 0:")
+    print(f"\nC-style streaming STFT frame 0:")
     save_bin("c_sim_stft_frame0_re", c_re)
     save_bin("c_sim_stft_frame0_im", c_im)
     print_first("re", c_re)
     print_first("im", c_im)
 
-    # 比較
+    # Comparison
     diff_re = np.abs(frame0_re - c_re)
     diff_im = np.abs(frame0_im - c_im)
-    print(f"\nSTFT差異: max_diff_re={diff_re.max():.6e}, max_diff_im={diff_im.max():.6e}")
+    print(f"\nSTFT difference: max_diff_re={diff_re.max():.6e}, max_diff_im={diff_im.max():.6e}")
 
     return frame0_re, frame0_im, c_re, c_im
 
 
 def diag_compression(pt_re, pt_im):
-    """パワー圧縮の中間値"""
-    print("\n=== パワー圧縮 Frame 0 診断 ===")
+    """Intermediate values for power compression."""
+    print("\n=== Power Compression Frame 0 Diagnostics ===")
 
-    # Nyquist除去: [513] → [512]
+    # Remove Nyquist: [513] → [512]
     re_512 = pt_re[:FREQ_BINS]
     im_512 = pt_im[:FREQ_BINS]
 
@@ -135,7 +135,7 @@ def diag_compression(pt_re, pt_im):
     print_first("compressed re", comp_re)
     print_first("compressed im", comp_im)
 
-    # PyTorch方式 (CompressedSTFT.forward)
+    # PyTorch method (CompressedSTFT.forward)
     mag_pt = np.sqrt(comp_re**2 + comp_im**2)
     print(f"  compressed mag: min={mag_pt.min():.6e}, max={mag_pt.max():.6e}")
 
@@ -143,8 +143,8 @@ def diag_compression(pt_re, pt_im):
 
 
 def diag_model_intermediates(model, input_np):
-    """モデル推論のEncoder/RNNFormer/Decoderの中間値を出力"""
-    print("\n=== モデル内部中間値診断 ===")
+    """Export Encoder/RNNFormer/Decoder intermediates from model inference."""
+    print("\n=== Model Internal Intermediate Diagnostics ===")
 
     x = torch.from_numpy(input_np).unsqueeze(0)  # [1, N_SAMPLES]
 
@@ -158,13 +158,13 @@ def diag_model_intermediates(model, input_np):
         print_first("spec_f0 re (first 5 freq bins)", spec_f0[:5, 0])
         print_first("spec_f0 im (first 5 freq bins)", spec_f0[:5, 1])
 
-        # model_forward() を手動でステップ実行
+        # Manually step through model_forward()
         B, F_dim, T, C2dim = spec.shape
         print(f"  B={B}, F={F_dim}, T={T}, C2dim={C2dim}")
 
         # Reshape: [B, F, T, 2] → [B*T, 2, F]
         x_enc = spec.permute(0, 2, 3, 1).reshape(B * T, C2dim, F_dim)
-        print(f"\nEncoder入力 (B*T, 2, F): shape={x_enc.shape}")
+        print(f"\nEncoder input (B*T, 2, F): shape={x_enc.shape}")
         enc_input_f0 = x_enc[0].numpy()  # [2, F] for frame 0
         save_bin("pt_enc_input_f0", enc_input_f0)
         print_first("enc_input_f0 ch0 (real)", enc_input_f0[0, :5])
@@ -172,7 +172,7 @@ def diag_model_intermediates(model, input_np):
 
         # Encoder PreNet
         enc_pre_out = model.enc_pre(x_enc)
-        print(f"\nEncoder PreNet出力: shape={enc_pre_out.shape}")
+        print(f"\nEncoder PreNet output: shape={enc_pre_out.shape}")
         enc_pre_f0 = enc_pre_out[0].numpy()  # [C1, F1]
         save_bin("pt_enc_pre_f0", enc_pre_f0)
         print_first("enc_pre_f0", enc_pre_f0.flatten())
@@ -189,27 +189,27 @@ def diag_model_intermediates(model, input_np):
                 x_blk = x_blk + x_in
             encoder_outs.append(x_blk)
             blk_f0 = x_blk[0].numpy()
-            print(f"\nEncoder Block {idx} 出力: rms={np.sqrt(np.mean(blk_f0**2)):.6e}")
+            print(f"\nEncoder Block {idx} output: rms={np.sqrt(np.mean(blk_f0**2)):.6e}")
             save_bin(f"pt_enc_block{idx}_f0", blk_f0)
 
         # RNNFormer PreNet
         x_in_rf = x_blk  # save for residual
         x_rf = model.rf_pre(x_blk)
         rf_pre_f0 = x_rf[0].numpy()
-        print(f"\nRNNFormer PreNet出力: shape={x_rf.shape}, rms={np.sqrt(np.mean(rf_pre_f0**2)):.6e}")
+        print(f"\nRNNFormer PreNet output: shape={x_rf.shape}, rms={np.sqrt(np.mean(rf_pre_f0**2)):.6e}")
         save_bin("pt_rf_pre_f0", rf_pre_f0)
 
         # Reshape for RNNFormer: [B*T, C2, F2] → [T, B, F2, C2]
         x_rf_reshaped = x_rf.reshape(B, T, -1, x_rf.shape[-1])
         x_rf_reshaped = x_rf_reshaped.permute(1, 0, 3, 2)
-        print(f"  RNNFormer入力 reshaped: shape={x_rf_reshaped.shape}")
+        print(f"  RNNFormer input reshaped: shape={x_rf_reshaped.shape}")
 
         # RNNFormer Blocks
         cache_in = [None] * len(model.rf_block)
         for bidx, block in enumerate(model.rf_block):
             x_rf_reshaped, _ = block(x_rf_reshaped, cache_in[bidx])
             rf_blk_f0 = x_rf_reshaped[0, 0].numpy()  # [F2, C2] for frame 0
-            print(f"\nRNNFormer Block {bidx} 出力 (frame 0): shape={rf_blk_f0.shape}, "
+            print(f"\nRNNFormer Block {bidx} output (frame 0): shape={rf_blk_f0.shape}, "
                   f"rms={np.sqrt(np.mean(rf_blk_f0**2)):.6e}")
             save_bin(f"pt_rf_block{bidx}_f0", rf_blk_f0)
 
@@ -219,7 +219,7 @@ def diag_model_intermediates(model, input_np):
         if resnet:
             x_rf_back = x_rf_back + x_in_rf
         rf_post_f0 = x_rf_back[0].numpy()
-        print(f"\nRNNFormer PostNet出力: shape={x_rf_back.shape}, rms={np.sqrt(np.mean(rf_post_f0**2)):.6e}")
+        print(f"\nRNNFormer PostNet output: shape={x_rf_back.shape}, rms={np.sqrt(np.mean(rf_post_f0**2)):.6e}")
         save_bin("pt_rf_post_f0", rf_post_f0)
 
         # Decoder
@@ -232,7 +232,7 @@ def diag_model_intermediates(model, input_np):
             if resnet:
                 x_dec = x_dec + x_in_dec
             dec_f0 = x_dec[0].numpy()
-            print(f"\nDecoder Block {didx} 出力: rms={np.sqrt(np.mean(dec_f0**2)):.6e}")
+            print(f"\nDecoder Block {didx} output: rms={np.sqrt(np.mean(dec_f0**2)):.6e}")
             save_bin(f"pt_dec_block{didx}_f0", dec_f0)
 
         # Decoder PostNet
@@ -240,7 +240,7 @@ def diag_model_intermediates(model, input_np):
         x_dec = torch.cat([x_dec, enc_out_first], dim=1)
         x_dec = model.dec_post(x_dec)
         dec_post_f0 = x_dec[0].numpy()  # [2, F] mask
-        print(f"\nDecoder PostNet出力 (mask): shape={x_dec.shape}, rms={np.sqrt(np.mean(dec_post_f0**2)):.6e}")
+        print(f"\nDecoder PostNet output (mask): shape={x_dec.shape}, rms={np.sqrt(np.mean(dec_post_f0**2)):.6e}")
         save_bin("pt_mask_f0", dec_post_f0)
         print_first("mask_re", dec_post_f0[0, :5])
         print_first("mask_im", dec_post_f0[1, :5])
@@ -248,40 +248,40 @@ def diag_model_intermediates(model, input_np):
         # mask activation (if any)
         mask_activated = model.mask(x_dec)
         mask_act_f0 = mask_activated[0].numpy()
-        print(f"\nMask activation後: rms={np.sqrt(np.mean(mask_act_f0**2)):.6e}")
+        print(f"\nAfter mask activation: rms={np.sqrt(np.mean(mask_act_f0**2)):.6e}")
         save_bin("pt_mask_activated_f0", mask_act_f0)
 
-        # 完全推論結果との比較
+        # Comparison with the full inference result
         wav_out, _ = model(torch.from_numpy(input_np).unsqueeze(0))
         wav_f0 = wav_out[0, :HOP_SIZE].numpy()
-        print(f"\n完全推論 frame 0: rms={np.sqrt(np.mean(wav_f0**2)):.6e}")
+        print(f"\nFull inference frame 0: rms={np.sqrt(np.mean(wav_f0**2)):.6e}")
         save_bin("pt_output_f0", wav_f0)
 
 
 def main():
     os.makedirs(DIAG_DIR, exist_ok=True)
 
-    print("=== PyTorch中間値診断 ===\n")
-    print(f"入力: {GOLDEN_INPUT}")
+    print("=== PyTorch Intermediate Diagnostics ===\n")
+    print(f"Input: {GOLDEN_INPUT}")
 
     input_np = np.fromfile(GOLDEN_INPUT, dtype=np.float32)
-    print(f"サンプル数: {len(input_np)}, RMS: {np.sqrt(np.mean(input_np**2)):.6e}")
+    print(f"Sample count: {len(input_np)}, RMS: {np.sqrt(np.mean(input_np**2)):.6e}")
 
     model = load_model()
-    print("モデルロード完了\n")
+    print("Model load complete\n")
 
-    # STFT比較
+    # STFT comparison
     pt_re, pt_im, c_re, c_im = diag_stft_frame0(model, input_np)
 
-    # パワー圧縮
+    # Power compression
     diag_compression(pt_re, pt_im)
 
-    # モデル中間値
+    # Model intermediates
     diag_model_intermediates(model, input_np)
 
     os.chdir(_original_cwd)
-    print("\n=== 診断完了 ===")
-    print(f"中間値ファイル: {DIAG_DIR}")
+    print("\n=== Diagnostics Complete ===")
+    print(f"Intermediate files: {DIAG_DIR}")
 
 
 if __name__ == "__main__":

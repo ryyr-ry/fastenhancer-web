@@ -7,7 +7,7 @@ describe('FrameBuffer', () => {
   describe('hop=512 (Tiny/Base/Small)', () => {
     const HOP = 512;
 
-    it('4 quantum蓄積で1フレーム', () => {
+    it('produces 1 frame after accumulating 4 quanta', () => {
       const buf = createFrameBuffer(HOP);
       let frameCount = 0;
       for (let i = 0; i < 4; i++) {
@@ -17,7 +17,7 @@ describe('FrameBuffer', () => {
       expect(frameCount).toBe(1);
     });
 
-    it('フレームの長さ = hopSize', () => {
+    it('uses hopSize as the frame length', () => {
       const buf = createFrameBuffer(HOP);
       let outputFrame: Float32Array | null = null;
       for (let i = 0; i < 4; i++) {
@@ -28,7 +28,7 @@ describe('FrameBuffer', () => {
       expect(outputFrame!).toHaveLength(HOP);
     });
 
-    it('3 quantum以下ではフレームが生成されない', () => {
+    it('does not produce a frame with 3 or fewer quanta', () => {
       const buf = createFrameBuffer(HOP);
       for (let i = 0; i < 3; i++) {
         const frame = buf.push(new Float32Array(QUANTUM));
@@ -36,7 +36,7 @@ describe('FrameBuffer', () => {
       }
     });
 
-    it('8 quantum で2フレーム', () => {
+    it('produces 2 frames from 8 quanta', () => {
       const buf = createFrameBuffer(HOP);
       let frameCount = 0;
       for (let i = 0; i < 8; i++) {
@@ -50,7 +50,7 @@ describe('FrameBuffer', () => {
   describe('hop=320 (Medium)', () => {
     const HOP = 320;
 
-    it('5 quantum(640サンプル)で2フレーム', () => {
+    it('produces 2 frames from 5 quanta (640 samples)', () => {
       const buf = createFrameBuffer(HOP);
       let frameCount = 0;
       for (let i = 0; i < 5; i++) {
@@ -63,7 +63,7 @@ describe('FrameBuffer', () => {
       expect(frameCount).toBe(2);
     });
 
-    it('push毎のフレーム生成パターン: [null, null, frame, null, frame]', () => {
+    it('uses the per-push frame generation pattern: [null, null, frame, null, frame]', () => {
       const buf = createFrameBuffer(HOP);
       const pattern: boolean[] = [];
       for (let i = 0; i < 5; i++) {
@@ -73,7 +73,7 @@ describe('FrameBuffer', () => {
       expect(pattern).toEqual([false, false, true, false, true]);
     });
 
-    it('10 quantum(1280サンプル)で4フレーム', () => {
+    it('produces 4 frames from 10 quanta (1280 samples)', () => {
       const buf = createFrameBuffer(HOP);
       let frameCount = 0;
       for (let i = 0; i < 10; i++) {
@@ -87,7 +87,7 @@ describe('FrameBuffer', () => {
   describe('hop=200 (Large)', () => {
     const HOP = 200;
 
-    it('25 quantum(3200サンプル)で16フレーム', () => {
+    it('produces 16 frames from 25 quanta (3200 samples)', () => {
       const buf = createFrameBuffer(HOP);
       let frameCount = 0;
       for (let i = 0; i < 25; i++) {
@@ -101,7 +101,7 @@ describe('FrameBuffer', () => {
     });
   });
 
-  it('入力データの順序が保存される', () => {
+  it('preserves the input data order', () => {
     const buf = createFrameBuffer(512);
     for (let i = 0; i < 4; i++) {
       const chunk = new Float32Array(QUANTUM);
@@ -116,7 +116,7 @@ describe('FrameBuffer', () => {
     }
   });
 
-  it('連続する複数サイクルでデータが一貫', () => {
+  it('keeps data consistent across multiple consecutive cycles', () => {
     const buf = createFrameBuffer(512);
     for (let cycle = 0; cycle < 3; cycle++) {
       for (let i = 0; i < 4; i++) {
@@ -131,8 +131,8 @@ describe('FrameBuffer', () => {
     }
   });
 
-  describe('バックプレッシャー (T-19)', () => {
-    it('大量push(1000回)でもクラッシュしない', () => {
+  describe('Backpressure (T-19)', () => {
+    it('does not crash under heavy push load (1000 pushes)', () => {
       const buf = createFrameBuffer(512);
       let frameCount = 0;
       for (let i = 0; i < 1000; i++) {
@@ -142,7 +142,7 @@ describe('FrameBuffer', () => {
       expect(frameCount).toBe(250);
     });
 
-    it('内部バッファが無制限に増加しない', () => {
+    it('does not let the internal buffer grow without bound', () => {
       const buf = createFrameBuffer(512);
       const quantaPerFrame = 4;
       const pushCount = 10000;
@@ -154,7 +154,7 @@ describe('FrameBuffer', () => {
       expect(frameCount).toBe(pushCount / quantaPerFrame);
     });
 
-    it('hop=320で大量pushしても正しいフレーム数', () => {
+    it('keeps the correct frame count under heavy push load with hop=320', () => {
       const buf = createFrameBuffer(320);
       let frameCount = 0;
       const pushCount = 500;
@@ -166,7 +166,7 @@ describe('FrameBuffer', () => {
       expect(frameCount).toBe(expected);
     });
 
-    it('pendingSamplesが常にhopSize未満', () => {
+    it('keeps pendingSamples always below hopSize', () => {
       const buf = createFrameBuffer(512);
       for (let i = 0; i < 1000; i++) {
         buf.push(new Float32Array(QUANTUM));
@@ -175,7 +175,7 @@ describe('FrameBuffer', () => {
       }
     });
 
-    it('hop=320でpendingSamplesが常にhopSize未満', () => {
+    it('keeps pendingSamples always below hopSize for hop=320', () => {
       const buf = createFrameBuffer(320);
       for (let i = 0; i < 500; i++) {
         buf.push(new Float32Array(QUANTUM));
@@ -184,7 +184,7 @@ describe('FrameBuffer', () => {
       }
     });
 
-    it('大量pushでデータ整合性が保たれる', () => {
+    it('preserves data integrity under heavy push load', () => {
       const buf = createFrameBuffer(512);
       let nextExpectedStart = 0;
       for (let cycle = 0; cycle < 100; cycle++) {

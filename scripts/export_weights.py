@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """
-export_weights.py — PyTorch FastEnhancer チェックポイントを C エンジン用バイナリに変換
+export_weights.py — Convert a PyTorch FastEnhancer checkpoint into a binary for the C engine
 
-使い方:
+Usage:
   python scripts/export_weights.py --checkpoint path/to/model.ckpt --model tiny --output weights/fe_tiny_48k.bin
   python scripts/export_weights.py --checkpoint path/to/model.ckpt --model tiny --dump-keys
 
-バイナリフォーマット (FEW1):
-  [0:4]   マジック "FEW1" (ASCII)
-  [4:8]   バージョン (uint32 LE, 現在=1)
-  [8:12]  モデルサイズ (uint32 LE, 0=Tiny, 1=Base, 2=Small)
-  [12:16] 重み数 (uint32 LE, float32要素数)
-  [16:20] CRC32 (uint32 LE, ペイロード対象)
-  [20:]   float32 LE ペイロード
+Binary format (FEW1):
+  [0:4]   Magic "FEW1" (ASCII)
+  [4:8]   Version (uint32 LE, current=1)
+  [8:12]  Model size (uint32 LE, 0=Tiny, 1=Base, 2=Small)
+  [12:16] Weight count (uint32 LE, number of float32 elements)
+  [16:20] CRC32 (uint32 LE, over the payload)
+  [20:]   float32 LE payload
 """
 
 import argparse
@@ -74,7 +74,7 @@ BN_EPS = 1e-5
 
 
 def compute_total_weights(cfg):
-    """C 側の FE_TOTAL_WEIGHTS と同一の計算"""
+    """Compute the same value as FE_TOTAL_WEIGHTS on the C side."""
     C1, C2, F1, F2 = cfg["C1"], cfg["C2"], cfg["F1"], cfg["F2"]
     K0, K = cfg["enc_k0"], cfg["enc_k"]
     enc_b, rf_b = cfg["enc_blocks"], cfg["rf_blocks"]
@@ -106,19 +106,19 @@ def compute_total_weights(cfg):
 
 
 def crc32_compute(data: bytes) -> int:
-    """C 側の crc32_compute と同一のアルゴリズム (標準 CRC-32)"""
+    """Use the same algorithm as crc32_compute on the C side (standard CRC-32)."""
     import zlib
 
     return zlib.crc32(data) & 0xFFFFFFFF
 
 
 def resolve_weight_norm(g: np.ndarray, v: np.ndarray) -> np.ndarray:
-    """weight_norm 解除: w = g * (v / ||v||)
+    """Remove weight_norm: w = g * (v / ||v||)
 
-    PyTorch の weight_norm parametrizations では:
-      original0 = g (スケーリング係数) [out_features, 1]
-      original1 = v (方向ベクトル)     [out_features, in_features]
-    正規化は dim=1 方向 (各行の L2 norm)。
+    In PyTorch weight_norm parametrizations:
+      original0 = g (scaling factor)   [out_features, 1]
+      original1 = v (direction vector) [out_features, in_features]
+    Normalization is along dim=1 (the L2 norm of each row).
     """
     g = g.squeeze()
     v_norm = np.linalg.norm(v, axis=1, keepdims=True)
@@ -135,12 +135,12 @@ def fuse_batchnorm(
     conv_bias: np.ndarray | None = None,
     eps: float = BN_EPS,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """BatchNorm を scale/offset に融合
+    """Fuse BatchNorm into scale/offset.
 
-    返り値: (scale, offset)
+    Returns: (scale, offset)
       y = x * scale + offset
 
-    conv_bias が指定された場合、オフセットに吸収する。
+    If conv_bias is provided, absorb it into the offset.
     """
     scale = bn_weight / np.sqrt(running_var + eps)
     if conv_bias is not None:
@@ -157,10 +157,10 @@ def split_gru_weights(
     bias_hh: np.ndarray,
     hidden_size: int,
 ) -> list[np.ndarray]:
-    """PyTorch GRU の融合重みを C 側の分離形式に変換
+    """Convert fused PyTorch GRU weights into the separated C-side format.
 
-    PyTorch ゲート順: [r(reset), z(update), n(new)]
-    C 側ストレージ順: W_z, U_z, b_z, W_r, U_r, b_r, W_n, U_n, b_in_n, b_hn_n
+    PyTorch gate order: [r(reset), z(update), n(new)]
+    C-side storage order: W_z, U_z, b_z, W_r, U_r, b_r, W_n, U_n, b_in_n, b_hn_n
     """
     D = hidden_size
     r_ih, z_ih, n_ih = weight_ih[:D], weight_ih[D : 2 * D], weight_ih[2 * D : 3 * D]
@@ -191,23 +191,23 @@ def split_qkv_weights(
     n_heads: int,
     head_dim: int,
 ) -> list[np.ndarray]:
-    """融合 QKV 重みをインターリーブ配置から Q/K/V に分割
+    """Split fused QKV weights from interleaved layout into Q/K/V.
 
-    PyTorchのQKV融合Linear重みレイアウト (行方向):
-      [Q_h0(head_dim行), K_h0(head_dim行), V_h0(head_dim行),
-       Q_h1(head_dim行), K_h1(head_dim行), V_h1(head_dim行), ...]
-    全体: [3*C2, C2] = [n_heads * 3 * head_dim, C2]
+    PyTorch fused QKV linear weight layout (row-wise):
+      [Q_h0(head_dim rows), K_h0(head_dim rows), V_h0(head_dim rows),
+       Q_h1(head_dim rows), K_h1(head_dim rows), V_h1(head_dim rows), ...]
+    Full shape: [3*C2, C2] = [n_heads * 3 * head_dim, C2]
 
-    Cエンジンは分離 W_q/W_k/W_v (各[C2, C2]) を期待するため、
-    ヘッドごとにQ/K/V行を抽出して連結する。
+    The C engine expects separated W_q/W_k/W_v (each [C2, C2]), so extract
+    the Q/K/V rows for each head and concatenate them.
 
     qkv_weight: [3*C2, C2]
     qkv_bias: [3*C2] or None
 
-    返り値: [W_q, b_q, W_k, b_k, W_v, b_v]
+    Returns: [W_q, b_q, W_k, b_k, W_v, b_v]
     """
     assert qkv_weight.shape[0] == 3 * c2, (
-        f"QKV重み行数不一致: {qkv_weight.shape[0]} != 3*{c2}"
+        f"QKV weight row count mismatch: {qkv_weight.shape[0]} != 3*{c2}"
     )
     assert c2 == n_heads * head_dim, (
         f"C2 != n_heads*head_dim: {c2} != {n_heads}*{head_dim}"
@@ -227,7 +227,7 @@ def split_qkv_weights(
 
     if qkv_bias is not None:
         assert qkv_bias.shape[0] == 3 * c2, (
-            f"QKVバイアスサイズ不一致: {qkv_bias.shape[0]} != 3*{c2}"
+            f"QKV bias size mismatch: {qkv_bias.shape[0]} != 3*{c2}"
         )
         b_q = np.empty(c2, dtype=np.float32)
         b_k = np.empty(c2, dtype=np.float32)
@@ -247,9 +247,9 @@ def split_qkv_weights(
 
 
 def get_param(sd: dict, key: str) -> np.ndarray:
-    """state_dict からパラメータを取得して numpy 配列に変換"""
+    """Fetch a parameter from state_dict and convert it to a NumPy array."""
     if key not in sd:
-        raise KeyError(f"state_dict にキー '{key}' が存在しません")
+        raise KeyError(f"Key '{key}' does not exist in state_dict")
     val = sd[key]
     if hasattr(val, "cpu"):
         return val.cpu().numpy().astype(np.float32)
@@ -257,7 +257,7 @@ def get_param(sd: dict, key: str) -> np.ndarray:
 
 
 def try_get_param(sd: dict, key: str) -> np.ndarray | None:
-    """state_dict からパラメータを取得、なければ None"""
+    """Fetch a parameter from state_dict, or return None if missing."""
     if key not in sd:
         return None
     val = sd[key]
@@ -267,10 +267,10 @@ def try_get_param(sd: dict, key: str) -> np.ndarray | None:
 
 
 def resolve_gru_weight(sd: dict, prefix: str, name: str) -> np.ndarray:
-    """GRU 重みを解決 (weight_norm あり/なし両対応)
+    """Resolve a GRU weight (supports both with and without weight_norm).
 
-    weight_norm 有効時: parametrizations.{name}.original0 (g), original1 (v)
-    weight_norm 無効時: {name} (直接)
+    When weight_norm is enabled: parametrizations.{name}.original0 (g), original1 (v)
+    When weight_norm is disabled: {name} (direct)
     """
     param_g_key = f"{prefix}.parametrizations.{name}.original0"
     param_v_key = f"{prefix}.parametrizations.{name}.original1"
@@ -284,12 +284,12 @@ def resolve_gru_weight(sd: dict, prefix: str, name: str) -> np.ndarray:
         return get_param(sd, direct_key)
     else:
         raise KeyError(
-            f"GRU 重み '{name}' が見つかりません (prefix='{prefix}')"
+            f"GRU weight '{name}' was not found (prefix='{prefix}')"
         )
 
 
 def resolve_attn_qkv_weight(sd: dict, prefix: str) -> np.ndarray:
-    """Attention QKV 重みを解決 (weight_norm あり/なし両対応)"""
+    """Resolve attention QKV weights (supports both with and without weight_norm)."""
     param_g_key = f"{prefix}.parametrizations.weight.original0"
     param_v_key = f"{prefix}.parametrizations.weight.original1"
     direct_key = f"{prefix}.weight"
@@ -301,13 +301,13 @@ def resolve_attn_qkv_weight(sd: dict, prefix: str) -> np.ndarray:
     elif direct_key in sd:
         return get_param(sd, direct_key)
     else:
-        raise KeyError(f"QKV 重みが見つかりません (prefix='{prefix}')")
+        raise KeyError(f"QKV weights were not found (prefix='{prefix}')")
 
 
 def extract_bn_params(
     sd: dict, prefix: str
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """BatchNorm パラメータを取得"""
+    """Fetch BatchNorm parameters."""
     w = get_param(sd, f"{prefix}.weight")
     b = get_param(sd, f"{prefix}.bias")
     mean = get_param(sd, f"{prefix}.running_mean")
@@ -318,12 +318,12 @@ def extract_bn_params(
 def convert_strided_conv_weight(
     w_pt: np.ndarray, in_ch: int, kernel_size: int, stride: int
 ) -> np.ndarray:
-    """StridedConv1d 形式の重みを標準 Conv1d 形式に変換
+    """Convert StridedConv1d-format weights to standard Conv1d format.
 
     PyTorch StridedConv1d: [out_ch, in_ch*stride, kernel/stride]
-    標準 Conv1d:           [out_ch, in_ch, kernel_size]
+    Standard Conv1d:       [out_ch, in_ch, kernel_size]
 
-    変換式: w_std[oc, ic, k] = w_strided[oc, ic*stride + k%stride, k//stride]
+    Conversion: w_std[oc, ic, k] = w_strided[oc, ic*stride + k%stride, k//stride]
     """
     out_ch = w_pt.shape[0]
     w_std = np.zeros((out_ch, in_ch, kernel_size), dtype=np.float32)
@@ -345,14 +345,14 @@ def fuse_linear_bn(
     running_var: np.ndarray,
     eps: float = BN_EPS,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Linear + BatchNorm を融合
+    """Fuse Linear + BatchNorm.
 
     Linear: y = x @ W^T (+ b)
     BN: z = (y - mean) / sqrt(var+eps) * w + b
 
-    融合後: z = x @ fused_W^T + fused_b
+    After fusion: z = x @ fused_W^T + fused_b
       fused_W[i,:] = W[i,:] * scale[i]
-      fused_b[i] = (fc_b[i] - mean[i]) * scale[i] + bn_b[i]   (fc_bなしなら0)
+      fused_b[i] = (fc_b[i] - mean[i]) * scale[i] + bn_b[i]   (0 if fc_b is absent)
     """
     scale = bn_weight / np.sqrt(running_var + eps)
     fused_w = fc_w * scale[:, np.newaxis]
@@ -364,16 +364,16 @@ def fuse_linear_bn(
 
 
 def export_weights(sd: dict, cfg: dict) -> np.ndarray:
-    """PyTorch state_dict から C エンジン用 float32 配列を生成
+    """Generate a float32 array for the C engine from a PyTorch state_dict.
 
-    返り値: np.ndarray (dtype=float32), shape=(FE_TOTAL_WEIGHTS,)
+    Returns: np.ndarray (dtype=float32), shape=(FE_TOTAL_WEIGHTS,)
 
-    PyTorch レイヤー名 → C 重み順序の対応:
+    PyTorch layer names → corresponding C weight order:
       enc_pre: [0]=StridedConv1d(2→C1,k=8,s=4), [1]=BN(C1)
       encoder.{b}: [0]=Conv1d(C1→C1,k=3), [1]=BN(C1)
       rf_pre: [0]=Linear(F1→F2), [1]=Conv1d(C1→C2,k=1), [2]=BN(C2)
       rf_block.{b}: .rnn=GRU(weight_norm), .rnn_fc=Linear, .rnn_post_norm=BN,
-                     .pe=位置埋め込み, .attn.qkv=QKV(weight_norm),
+                     .pe=positional embedding, .attn.qkv=QKV(weight_norm),
                      .attn_fc=Linear, .attn_post_norm=BN
       rf_post: [0]=Linear(F2→F1), [1]=Conv1d(C2→C1,k=1), [2]=BN(C1)
       decoder.{b}: [0]=Conv1d(2C1→C1,k=1), [1]=BN(C1), [3]=Conv1d(C1→C1,k=3), [4]=BN(C1)
@@ -403,7 +403,7 @@ def export_weights(sd: dict, cfg: dict) -> np.ndarray:
     emit(bn_offset, "enc_pre_bn_b")
 
     # === 2. Encoder Blocks ===
-    # Conv1d(C1→C1, k=3, s=1): 標準形式、変換不要
+    # Conv1d(C1→C1, k=3, s=1): standard format, no conversion needed
     for b in range(cfg["enc_blocks"]):
         conv_w = get_param(sd, f"encoder.{b}.0.weight")
         conv_bias = try_get_param(sd, f"encoder.{b}.0.bias")
@@ -431,7 +431,7 @@ def export_weights(sd: dict, cfg: dict) -> np.ndarray:
     for b in range(cfg["rf_blocks"]):
         prefix = f"rf_block.{b}"
 
-        # --- GRU 重み (weight_norm 解決 + ゲート分割) ---
+        # --- GRU weights (resolve weight_norm + split gates) ---
         w_ih = resolve_gru_weight(sd, f"{prefix}.rnn", "weight_ih_l0")
         w_hh = resolve_gru_weight(sd, f"{prefix}.rnn", "weight_hh_l0")
         b_ih = get_param(sd, f"{prefix}.rnn.bias_ih_l0")
@@ -440,7 +440,7 @@ def export_weights(sd: dict, cfg: dict) -> np.ndarray:
         for gp in gru_parts:
             emit(gp)
 
-        # --- GRU FC + rnn_post_norm 融合 ---
+        # --- GRU FC + rnn_post_norm fusion ---
         gru_fc_w = get_param(sd, f"{prefix}.rnn_fc.weight")
         gru_fc_bias = try_get_param(sd, f"{prefix}.rnn_fc.bias")
         bn_w, bn_b, bn_mean, bn_var = extract_bn_params(sd, f"{prefix}.rnn_post_norm")
@@ -450,12 +450,12 @@ def export_weights(sd: dict, cfg: dict) -> np.ndarray:
         emit(fused_fc_w, f"rf_{b}_gru_fc_w")
         emit(fused_fc_b, f"rf_{b}_gru_fc_b")
 
-        # --- 位置埋め込み (block 0 のみ) ---
+        # --- Positional embedding (block 0 only) ---
         if b == 0:
             pe = get_param(sd, f"{prefix}.pe")
             emit(pe, "rf_pe")
 
-        # --- MHSA QKV (weight_norm 解決 + 分割) ---
+        # --- MHSA QKV (resolve weight_norm + split) ---
         qkv_w = resolve_attn_qkv_weight(sd, f"{prefix}.attn.qkv")
         qkv_b = try_get_param(sd, f"{prefix}.attn.qkv.bias")
         qkv_parts = split_qkv_weights(
@@ -464,7 +464,7 @@ def export_weights(sd: dict, cfg: dict) -> np.ndarray:
         for qp in qkv_parts:
             emit(qp)
 
-        # --- MHSA output (attn_fc + attn_post_norm 融合) → W_o, b_o ---
+        # --- MHSA output (attn_fc + attn_post_norm fusion) → W_o, b_o ---
         attn_fc_w = get_param(sd, f"{prefix}.attn_fc.weight")
         attn_fc_bias = try_get_param(sd, f"{prefix}.attn_fc.bias")
         bn_w, bn_b, bn_mean, bn_var = extract_bn_params(sd, f"{prefix}.attn_post_norm")
@@ -522,7 +522,7 @@ def export_weights(sd: dict, cfg: dict) -> np.ndarray:
 
     # dec_post.3: ScaledConvTranspose1d(C1→2, k=8, s=4) + scale weight_norm
     # normalize=True: F.normalize(weight, dim=(0,1,2)) * scale
-    # → テンソル全体のL2ノルムで正規化（per-rowではない）
+    # → Normalize by the L2 norm of the entire tensor (not per-row)
     deconv_w = get_param(sd, "dec_post.3.weight")
     deconv_scale = try_get_param(sd, "dec_post.3.scale")
     if deconv_scale is not None:
@@ -543,7 +543,7 @@ def export_weights(sd: dict, cfg: dict) -> np.ndarray:
 
 
 def write_binary(weights: np.ndarray, model_id: int, output_path: Path) -> None:
-    """FEW1 バイナリファイルを書き出し"""
+    """Write a FEW1 binary file."""
     weight_count = len(weights)
     payload = weights.astype('<f4').tobytes()
 
@@ -564,16 +564,16 @@ def write_binary(weights: np.ndarray, model_id: int, output_path: Path) -> None:
         f.write(payload)
 
     total_size = len(header) + len(payload)
-    print(f"出力: {output_path}")
-    print(f"  ヘッダ: {len(header)} bytes")
-    print(f"  ペイロード: {len(payload)} bytes ({weight_count} floats)")
-    print(f"  合計: {total_size} bytes")
+    print(f"Output: {output_path}")
+    print(f"  Header: {len(header)} bytes")
+    print(f"  Payload: {len(payload)} bytes ({weight_count} floats)")
+    print(f"  Total: {total_size} bytes")
     print(f"  CRC32: 0x{crc:08X}")
 
 
 def dump_state_dict_keys(sd: dict) -> None:
-    """state_dict の全キーと形状を表示"""
-    print(f"state_dict キー数: {len(sd)}")
+    """Print all state_dict keys and shapes."""
+    print(f"state_dict key count: {len(sd)}")
     print("-" * 80)
     for key in sorted(sd.keys()):
         val = sd[key]
@@ -594,36 +594,36 @@ EXPECTED_WEIGHTS = {
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="PyTorch FastEnhancer チェックポイント → FEW1 バイナリ変換"
+        description="Convert a PyTorch FastEnhancer checkpoint to FEW1 binary"
     )
     parser.add_argument(
         "--checkpoint",
         "--ckpt",
         type=str,
-        help="PyTorch チェックポイントのパス (例: ckpt_tiny_48k/00500.pth)",
+        help="Path to the PyTorch checkpoint (example: ckpt_tiny_48k/00500.pth)",
     )
     parser.add_argument(
         "--model",
         type=str,
         choices=["tiny", "base", "small"],
-        help="モデルサイズ",
+        help="Model size",
     )
     parser.add_argument(
         "--output",
         "-o",
         type=str,
         default=None,
-        help="出力パス (デフォルト: weights/fe_{model}_48k.bin)",
+        help="Output path (default: weights/fe_{model}_48k.bin)",
     )
     parser.add_argument(
         "--dump-keys",
         action="store_true",
-        help="state_dict の全キーを表示して終了",
+        help="Print all state_dict keys and exit",
     )
     parser.add_argument(
         "--all",
         action="store_true",
-        help="全3モデル (tiny/base/small) を一括エクスポート",
+        help="Export all three models (tiny/base/small) in one batch",
     )
     args = parser.parse_args()
 
@@ -636,20 +636,20 @@ def main() -> None:
         for model_name, ckpt_path in ckpt_map.items():
             ckpt_file = Path(ckpt_path)
             if not ckpt_file.exists():
-                print(f"警告: {ckpt_path} が存在しません。スキップします。")
+                print(f"Warning: {ckpt_path} does not exist. Skipping.")
                 continue
             print(f"\n{'='*60}")
-            print(f"  {model_name.upper()} モデルのエクスポート")
+            print(f"  Exporting the {model_name.upper()} model")
             print(f"{'='*60}")
             export_single(ckpt_file, model_name, None)
         return
 
     if not args.checkpoint or not args.model:
-        parser.error("--checkpoint と --model を指定してください (または --all)")
+        parser.error("Please specify --checkpoint and --model (or use --all)")
 
     ckpt_path = Path(args.checkpoint)
     if not ckpt_path.exists():
-        print(f"エラー: チェックポイント '{ckpt_path}' が存在しません", file=sys.stderr)
+        print(f"Error: checkpoint '{ckpt_path}' does not exist", file=sys.stderr)
         sys.exit(1)
 
     export_single(ckpt_path, args.model, args.output, args.dump_keys)
@@ -661,12 +661,12 @@ def export_single(
     output_path_str: str | None,
     dump_keys: bool = False,
 ) -> None:
-    """単一モデルのエクスポート処理"""
+    """Export a single model."""
     import torch
 
     cfg = MODEL_CONFIGS[model_name]
 
-    print(f"チェックポイント読み込み中: {ckpt_path}")
+    print(f"Loading checkpoint: {ckpt_path}")
     ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=True)
 
     if "model" in ckpt:
@@ -676,7 +676,7 @@ def export_single(
     else:
         sd = ckpt
 
-    print(f"state_dict キー数: {len(sd)}")
+    print(f"state_dict key count: {len(sd)}")
 
     if dump_keys:
         dump_state_dict_keys(sd)
@@ -684,32 +684,32 @@ def export_single(
 
     expected = compute_total_weights(cfg)
     expected_hardcoded = EXPECTED_WEIGHTS.get(model_name)
-    print(f"計算上の期待重み数: {expected}")
+    print(f"Computed expected weight count: {expected}")
     if expected_hardcoded is not None:
         assert expected == expected_hardcoded, (
-            f"重み数計算不一致: compute={expected} vs hardcoded={expected_hardcoded}"
+            f"Weight count computation mismatch: compute={expected} vs hardcoded={expected_hardcoded}"
         )
-        print(f"ハードコード値と一致: {expected_hardcoded} ✓")
+        print(f"Matches hardcoded value: {expected_hardcoded} ✓")
 
-    print(f"重みエクスポート中...")
+    print(f"Exporting weights...")
     weights = export_weights(sd, cfg)
     actual_count = len(weights)
 
-    print(f"エクスポートされた重み数: {actual_count}")
+    print(f"Exported weight count: {actual_count}")
     if actual_count != expected:
         print(
-            f"エラー: 重み数不一致! expected={expected}, actual={actual_count}",
+            f"Error: weight count mismatch! expected={expected}, actual={actual_count}",
             file=sys.stderr,
         )
         sys.exit(1)
-    print(f"重み数一致: {actual_count} == {expected} ✓")
+    print(f"Weight count matches: {actual_count} == {expected} ✓")
 
     if output_path_str is None:
         output_path_str = f"weights/fe_{model_name}_48k.bin"
     out_path = Path(output_path_str)
 
     write_binary(weights, cfg["model_id"], out_path)
-    print(f"\n{model_name.upper()} モデルのエクスポート完了 ✓")
+    print(f"\nFinished exporting the {model_name.upper()} model ✓")
 
 
 if __name__ == "__main__":

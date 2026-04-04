@@ -1,12 +1,12 @@
 /**
- * loader.ts — 統合リソースローダー (v2)
+ * loader.ts — Unified resource loader (v2)
  *
- * loadModel(modelSize, { baseUrl?, simd? }) で
- * WASM バイナリ(.wasm)、重みバイナリ(.bin)、エクスポートマップ(.json) を
- * 一括取得し、createDenoiser / createStreamDenoiser メソッド付きの
- * LoadedModel を返す。
+ * loadModel(modelSize, { baseUrl?, simd? }) fetches the WASM binary (.wasm),
+ * weight binary (.bin), and export map (.json) together and returns a LoadedModel
+ * with createDenoiser / createStreamDenoiser methods.
  *
- * 責務: リソース取得 + LoadedModel構築 + キャッシュ のみ。推論処理は行わない。
+ * Responsibility: resource fetching, LoadedModel construction, and caching only.
+ * It does not perform inference.
  */
 
 import { ValidationError, WasmLoadError } from './errors.js';
@@ -20,19 +20,19 @@ import {
   type StreamDenoiser,
 } from './stream-denoiser.js';
 
-/** loadModel に渡すオプション */
+/** Options passed to loadModel */
 export interface LoadModelOptions {
   /**
-   * 全リソースファイルのベースURL。
-   * 省略時: import.meta.url から自動検出。
-   * 指定時: このURL配下に WASM/重み/exportMap が存在する前提。
+   * Base URL for all resource files.
+   * If omitted: automatically detected from import.meta.url.
+   * If provided: assumes WASM/weights/exportMap exist under this URL.
    */
   baseUrl?: string;
-  /** SIMD使用を明示指定。省略時は自動検出。 */
+  /** Explicitly specify SIMD usage. If omitted, it is auto-detected. */
   simd?: boolean;
 }
 
-/** loadModel の返却型。createDenoiser / createStreamDenoiser をメソッドとして持つ。 */
+/** Return type of loadModel. Provides createDenoiser / createStreamDenoiser methods. */
 export interface LoadedModel {
   readonly size: ModelSize;
   readonly variant: WasmVariant;
@@ -40,17 +40,17 @@ export interface LoadedModel {
   readonly hopSize: number;
   readonly nFft: number;
   readonly modelSizeId: number;
-  /** AudioWorklet 用の生 WASM バイナリ */
+  /** Raw WASM binary for AudioWorklet */
   readonly wasmBytes: ArrayBuffer;
-  /** 重みバイナリデータ */
+  /** Weight binary data */
   readonly weightData: ArrayBuffer;
-  /** WASM エクスポート名マッピング（-O3 ミニファイ対応） */
+  /** WASM export name mapping (supports -O3 minified builds) */
   readonly exportMap: Record<string, string>;
-  /** Emscripten SINGLE_FILE factory（遅延ロード） */
+  /** Emscripten SINGLE_FILE factory (lazy-loaded) */
   readonly wasmFactory: () => Promise<any>;
-  /** Layer 1: フレーム単位デノイザーを生成 */
+  /** Layer 1: creates a frame-based denoiser */
   createDenoiser(): Promise<any>;
-  /** Layer 2: AudioWorklet 経由のリアルタイムストリームデノイザーを生成 */
+  /** Layer 2: creates a real-time stream denoiser through AudioWorklet */
   createStreamDenoiser(
     inputStream: MediaStream,
     options?: { workletUrl?: string; onWarning?: (message: string) => void },
@@ -87,29 +87,29 @@ async function detectSimd(): Promise<boolean> {
 }
 
 /* ================================================================
- * キャッシュ
+ * Cache
  * ================================================================ */
 
 const modelCache = new Map<string, Promise<LoadedModel>>();
 
-/** テスト・リソース解放用: キャッシュを全消去する */
+/** For tests and resource cleanup: clear the entire cache */
 export function clearModelCache(): void {
   modelCache.clear();
 }
 
 /* ================================================================
- * loadModel — メインエントリーポイント
+ * loadModel — Main entry point
  * ================================================================ */
 
 /**
- * モデルの全リソース（WASM + 重み + exportMap）を一括ロードする。
- * 同一引数の呼び出しはキャッシュされ、同一 Promise を返す。
+ * Loads all model resources (WASM + weights + exportMap) at once.
+ * Calls with the same arguments are cached and return the same Promise.
  *
  * @param modelSize - 'tiny' | 'base' | 'small'
- * @param options - baseUrl（省略時は import.meta.url 自動検出）、simd 指定
- * @returns LoadedModel — createDenoiser / createStreamDenoiser メソッド付き
- * @throws ValidationError モデルサイズが不正な場合
- * @throws WasmLoadError fetch またはリソース解析に失敗した場合
+ * @param options - baseUrl (auto-detected from import.meta.url if omitted), SIMD setting
+ * @returns LoadedModel — with createDenoiser / createStreamDenoiser methods
+ * @throws ValidationError If the model size is invalid
+ * @throws WasmLoadError If fetching or parsing resources fails
  */
 export function loadModel(
   modelSize: ModelSize,
@@ -117,7 +117,7 @@ export function loadModel(
 ): Promise<LoadedModel> {
   if (!VALID_MODELS.includes(modelSize)) {
     throw new ValidationError(
-      `不正なモデルサイズ: "${modelSize}"。有効値: ${VALID_MODELS.join(', ')}`,
+      `Invalid model size: "${modelSize}". Valid values: ${VALID_MODELS.join(', ')}`,
     );
   }
 
@@ -136,7 +136,7 @@ export function loadModel(
 }
 
 /* ================================================================
- * loadModelImpl — 実リソース取得
+ * loadModelImpl — Actual resource fetching
  * ================================================================ */
 
 async function loadModelImpl(
@@ -174,17 +174,17 @@ async function loadModelImpl(
 
     if (!wasmRes.ok) {
       throw new WasmLoadError(
-        `WASMバイナリの取得に失敗: ${wasmRes.status} ${wasmRes.statusText} (${wasmBinaryUrl})`,
+        `Failed to fetch WASM binary: ${wasmRes.status} ${wasmRes.statusText} (${wasmBinaryUrl})`,
       );
     }
     if (!weightRes.ok) {
       throw new WasmLoadError(
-        `重みファイルの取得に失敗: ${weightRes.status} ${weightRes.statusText} (${weightUrl})`,
+        `Failed to fetch weight file: ${weightRes.status} ${weightRes.statusText} (${weightUrl})`,
       );
     }
     if (!mapRes.ok) {
       throw new WasmLoadError(
-        `エクスポートマップの取得に失敗: ${mapRes.status} ${mapRes.statusText} (${exportMapUrl})`,
+        `Failed to fetch export map: ${mapRes.status} ${mapRes.statusText} (${exportMapUrl})`,
       );
     }
 
@@ -196,7 +196,7 @@ async function loadModelImpl(
   } catch (err) {
     if (err instanceof WasmLoadError) throw err;
     throw new WasmLoadError(
-      `モデルリソースの読み込みに失敗しました: ${err instanceof Error ? err.message : String(err)}`,
+      `Failed to load model resources: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 

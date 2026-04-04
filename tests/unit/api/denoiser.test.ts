@@ -15,8 +15,8 @@ function freshModel(): Model {
   return createRealModel(sharedWasm, 'tiny');
 }
 
-describe('createDenoiser（実WASM）', () => {
-  it('Denoiserを生成しready状態', async () => {
+describe('createDenoiser (real WASM)', () => {
+  it('creates a Denoiser in the ready state', async () => {
     const d = await createDenoiser({ model: freshModel(), weightData: sharedWeightData });
     expect(d.state).toBe('ready');
     expect(typeof d.processFrame).toBe('function');
@@ -24,7 +24,7 @@ describe('createDenoiser（実WASM）', () => {
     d.destroy();
   });
 
-  it('processFrame: 入力と同じ長さのFloat32Arrayを返す', async () => {
+  it('processFrame: returns a Float32Array with the same length as the input', async () => {
     const d = await createDenoiser({ model: freshModel(), weightData: sharedWeightData });
     const input = new Float32Array(512).fill(0.1);
     const output = d.processFrame(input);
@@ -33,7 +33,7 @@ describe('createDenoiser（実WASM）', () => {
     d.destroy();
   });
 
-  it('processFrame: 出力値が入力値と異なる（実際にノイズ除去処理されている）', async () => {
+  it('processFrame: output values differ from input values (noise removal is actually applied)', async () => {
     const d = await createDenoiser({ model: freshModel(), weightData: sharedWeightData });
     const input = new Float32Array(512);
     for (let i = 0; i < 512; i++) {
@@ -48,7 +48,7 @@ describe('createDenoiser（実WASM）', () => {
     d.destroy();
   });
 
-  it('processFrame: 出力が有限値のみ（NaN/Infなし）', async () => {
+  it('processFrame: output contains only finite values (no NaN/Inf)', async () => {
     const d = await createDenoiser({ model: freshModel(), weightData: sharedWeightData });
     const input = new Float32Array(512).fill(0.3);
     const output = d.processFrame(input);
@@ -58,7 +58,7 @@ describe('createDenoiser（実WASM）', () => {
     d.destroy();
   });
 
-  it('processFrame: 同一入力に対して決定的な出力', async () => {
+  it('processFrame: produces deterministic output for the same input', async () => {
     const d = await createDenoiser({ model: freshModel(), weightData: sharedWeightData });
     const input = new Float32Array(512).fill(0.2);
     const output1 = d.processFrame(input);
@@ -72,7 +72,7 @@ describe('createDenoiser（実WASM）', () => {
     d2.destroy();
   });
 
-  it('processFrame: 100フレーム連続処理でクラッシュしない', async () => {
+  it('processFrame: does not crash after processing 100 consecutive frames', async () => {
     const d = await createDenoiser({ model: freshModel(), weightData: sharedWeightData });
     const input = new Float32Array(512);
     for (let frame = 0; frame < 100; frame++) {
@@ -88,28 +88,28 @@ describe('createDenoiser（実WASM）', () => {
     d.destroy();
   });
 
-  it('destroy後にprocessFrameでDestroyedErrorがthrow', async () => {
+  it('processFrame throws DestroyedError after destroy', async () => {
     const d = await createDenoiser({ model: freshModel(), weightData: sharedWeightData });
     d.destroy();
     expect(d.state).toBe('destroyed');
     expect(() => d.processFrame(new Float32Array(512))).toThrow();
   });
 
-  it('不正なサイズの入力でValidationErrorがthrow', async () => {
+  it('throws ValidationError for input with an invalid size', async () => {
     const d = await createDenoiser({ model: freshModel(), weightData: sharedWeightData });
     expect(() => d.processFrame(new Float32Array(0))).toThrow();
     expect(() => d.processFrame(new Float32Array(256))).toThrow();
     d.destroy();
   });
 
-  it('破損したweightDataでModelInitErrorがthrow', async () => {
+  it('throws ModelInitError for corrupted weightData', async () => {
     const corruptedWeights = new ArrayBuffer(24);
     await expect(
       createDenoiser({ model: freshModel(), weightData: corruptedWeights }),
     ).rejects.toThrow();
   });
 
-  it('巨大weightDataでModelInitErrorがthrow（ヒープ超過）', async () => {
+  it('throws ModelInitError for oversized weightData (heap exceeded)', async () => {
     const hugeWeights = new ArrayBuffer(2 * 1024 * 1024);
     await expect(
       createDenoiser({ model: freshModel(), weightData: hugeWeights }),
@@ -117,8 +117,8 @@ describe('createDenoiser（実WASM）', () => {
   });
 });
 
-describe('イベント（実WASM）', () => {
-  it('statechangeイベントが発火', async () => {
+describe('Events (real WASM)', () => {
+  it('fires the statechange event', async () => {
     const d = await createDenoiser({ model: freshModel(), weightData: sharedWeightData });
     const states: string[] = [];
     d.on('statechange', (state: string) => states.push(state));
@@ -126,7 +126,7 @@ describe('イベント（実WASM）', () => {
     expect(states).toContain('destroyed');
   });
 
-  it('destroyイベントが発火', async () => {
+  it('fires the destroy event', async () => {
     const d = await createDenoiser({ model: freshModel(), weightData: sharedWeightData });
     let destroyed = false;
     d.on('destroy', () => { destroyed = true; });
@@ -135,8 +135,8 @@ describe('イベント（実WASM）', () => {
   });
 });
 
-describe('プロパティ（実WASM）', () => {
-  it('bypass: デフォルトfalse、trueで入力そのまま出力', async () => {
+describe('Properties (real WASM)', () => {
+  it('bypass: defaults to false and returns the input unchanged when true', async () => {
     const d = await createDenoiser({ model: freshModel(), weightData: sharedWeightData });
     expect(d.bypass).toBe(false);
     d.bypass = true;
@@ -149,7 +149,7 @@ describe('プロパティ（実WASM）', () => {
     d.destroy();
   });
 
-  it('agcEnabled: 読み書き可能で実WASMに反映', async () => {
+  it('agcEnabled: can be read and written and is reflected in real WASM', async () => {
     const d = await createDenoiser({ model: freshModel(), weightData: sharedWeightData });
     expect(typeof d.agcEnabled).toBe('boolean');
     d.agcEnabled = false;
@@ -163,7 +163,7 @@ describe('プロパティ（実WASM）', () => {
     d.destroy();
   });
 
-  it('hpfEnabled: 読み書き可能で実WASMに反映', async () => {
+  it('hpfEnabled: can be read and written and is reflected in real WASM', async () => {
     const d = await createDenoiser({ model: freshModel(), weightData: sharedWeightData });
     expect(typeof d.hpfEnabled).toBe('boolean');
     d.hpfEnabled = true;
@@ -178,22 +178,22 @@ describe('プロパティ（実WASM）', () => {
   });
 });
 
-describe('DX機能（実WASM）', () => {
-  it('Symbol.dispose でリソース解放', async () => {
+describe('Developer experience features (real WASM)', () => {
+  it('releases resources with Symbol.dispose', async () => {
     const d = await createDenoiser({ model: freshModel(), weightData: sharedWeightData });
     expect(typeof d[Symbol.dispose]).toBe('function');
     d[Symbol.dispose]();
     expect(d.state).toBe('destroyed');
   });
 
-  it('Symbol.asyncDispose でリソース解放', async () => {
+  it('releases resources with Symbol.asyncDispose', async () => {
     const d = await createDenoiser({ model: freshModel(), weightData: sharedWeightData });
     expect(typeof d[Symbol.asyncDispose]).toBe('function');
     await d[Symbol.asyncDispose]();
     expect(d.state).toBe('destroyed');
   });
 
-  it('once: ワンショットリスナー', async () => {
+  it('once: one-shot listener', async () => {
     const d = await createDenoiser({ model: freshModel(), weightData: sharedWeightData });
     let count = 0;
     d.once('statechange', () => count++);
@@ -201,7 +201,7 @@ describe('DX機能（実WASM）', () => {
     expect(count).toBe(1);
   });
 
-  it('performance: 実処理の統計取得', async () => {
+  it('performance: returns statistics for actual processing', async () => {
     const d = await createDenoiser({ model: freshModel(), weightData: sharedWeightData });
     d.processFrame(new Float32Array(512).fill(0.5));
     d.processFrame(new Float32Array(512).fill(0.3));
@@ -218,7 +218,7 @@ describe('DX機能（実WASM）', () => {
 });
 
 describe('isSupported', () => {
-  it('ブラウザサポート情報を返す', async () => {
+  it('returns browser support information', async () => {
     const support = await isSupported();
     expect(support).toHaveProperty('wasm');
     expect(support).toHaveProperty('simd');
@@ -229,8 +229,8 @@ describe('isSupported', () => {
   });
 });
 
-describe('switchModel（実WASM）', () => {
-  it('モデル切替後も処理が継続する', async () => {
+describe('switchModel (real WASM)', () => {
+  it('continues processing after switching models', async () => {
     const d = await createDenoiser({ model: freshModel(), weightData: sharedWeightData });
 
     const newWasm = await loadRealWasm('tiny', 'simd');
@@ -245,7 +245,7 @@ describe('switchModel（実WASM）', () => {
     d.destroy();
   });
 
-  it('切替中にisSwitchingがtrue', async () => {
+  it('sets isSwitching to true while switching', async () => {
     const d = await createDenoiser({ model: freshModel(), weightData: sharedWeightData });
     expect(d.isSwitching).toBe(false);
 
@@ -258,7 +258,7 @@ describe('switchModel（実WASM）', () => {
     d.destroy();
   });
 
-  it('切替中もprocessFrameが動作する（旧モデルで処理）', async () => {
+  it('keeps processFrame working during switching (processed with the old model)', async () => {
     const d = await createDenoiser({ model: freshModel(), weightData: sharedWeightData });
 
     let resolveFactory!: (wasm: WasmInstance) => void;
@@ -287,7 +287,7 @@ describe('switchModel（実WASM）', () => {
     d.destroy();
   });
 
-  it('destroy済みの場合switchModelでthrow', async () => {
+  it('throws in switchModel when already destroyed', async () => {
     const d = await createDenoiser({ model: freshModel(), weightData: sharedWeightData });
     d.destroy();
 
@@ -298,7 +298,7 @@ describe('switchModel（実WASM）', () => {
     ).rejects.toThrow();
   });
 
-  it('switchModel中にdestroy()してもクラッシュしない', async () => {
+  it('does not crash when destroy() is called during switchModel', async () => {
     const d = await createDenoiser({ model: freshModel(), weightData: sharedWeightData });
 
     let resolveFactory!: (wasm: WasmInstance) => void;
@@ -326,8 +326,8 @@ describe('switchModel（実WASM）', () => {
   });
 });
 
-describe('createDenoiser — base/smallモデル', () => {
-  it('baseモデルでDenoiserを生成しprocessFrameが動作する', async () => {
+describe('createDenoiser — base/small models', () => {
+  it('creates a Denoiser with the base model and runs processFrame', async () => {
     const wasm = await loadRealWasm('base', 'simd');
     const model: Model = {
       size: 'base',
@@ -346,7 +346,7 @@ describe('createDenoiser — base/smallモデル', () => {
     d.destroy();
   });
 
-  it('smallモデルでDenoiserを生成しprocessFrameが動作する', async () => {
+  it('creates a Denoiser with the small model and runs processFrame', async () => {
     const wasm = await loadRealWasm('small', 'simd');
     const model: Model = {
       size: 'small',
@@ -365,7 +365,7 @@ describe('createDenoiser — base/smallモデル', () => {
     d.destroy();
   });
 
-  it('modelSizeIdが自動導出される（base=1, small=2）', async () => {
+  it('auto-derives modelSizeId (base=1, small=2)', async () => {
     const baseWasm = await loadRealWasm('base', 'simd');
     const baseModel: Model = {
       size: 'base',

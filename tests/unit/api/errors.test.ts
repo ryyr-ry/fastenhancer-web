@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import * as errors from '../../../src/api/errors.js';
 
-describe('エラーモジュール', () => {
+describe('Error module', () => {
   function getErrorClasses() {
     return Object.values(errors).filter(
       (v): v is new (...args: any[]) => Error =>
@@ -9,19 +9,19 @@ describe('エラーモジュール', () => {
     );
   }
 
-  it('6種類以上のエラークラスをエクスポート', () => {
+  it('exports at least 6 error classes', () => {
     const classes = getErrorClasses();
     expect(classes.length).toBeGreaterThanOrEqual(6);
   });
 
-  it('全エラーがErrorを継承', () => {
+  it('all errors extend Error', () => {
     for (const ErrorClass of getErrorClasses()) {
       const instance = new ErrorClass('test');
       expect(instance).toBeInstanceOf(Error);
     }
   });
 
-  it('全エラーにcodeプロパティ（string, 非空）', () => {
+  it('all errors have a non-empty string code property', () => {
     for (const ErrorClass of getErrorClasses()) {
       const instance = new ErrorClass('test');
       expect(typeof instance.code).toBe('string');
@@ -29,7 +29,7 @@ describe('エラーモジュール', () => {
     }
   });
 
-  it('各エラーのcodeが一意', () => {
+  it('each error has a unique code', () => {
     const codes = new Set<string>();
     for (const ErrorClass of getErrorClasses()) {
       const instance = new ErrorClass('test');
@@ -38,7 +38,7 @@ describe('エラーモジュール', () => {
     expect(codes.size).toBe(getErrorClasses().length);
   });
 
-  it('全エラーがcauseチェーンをサポート', () => {
+  it('all errors support cause chains', () => {
     for (const ErrorClass of getErrorClasses()) {
       const cause = new Error('root cause');
       const wrapped = new ErrorClass('wrapped', { cause });
@@ -46,7 +46,7 @@ describe('エラーモジュール', () => {
     }
   });
 
-  it('全エラーがcatch文でinstanceof判定可能', () => {
+  it('all errors can be checked with instanceof in catch blocks', () => {
     for (const ErrorClass of getErrorClasses()) {
       let caught = false;
       try {
@@ -58,7 +58,7 @@ describe('エラーモジュール', () => {
     }
   });
 
-  it('messageプロパティにコンストラクタ引数が反映', () => {
+  it('reflects the constructor argument in the message property', () => {
     for (const ErrorClass of getErrorClasses()) {
       const instance = new ErrorClass('specific message');
       expect(instance.message).toBe('specific message');

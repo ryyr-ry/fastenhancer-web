@@ -2,61 +2,62 @@ import { describe, it, expect } from 'vitest';
 import { powerCompress, powerDecompress, applyComplexMask } from '../../../src/engine/compression.js';
 
 /**
- * T-17対応: powerCompress 全象限検証
+ * T-17 support: full-quadrant validation for powerCompress
  *
- * 本テストはTypeScript参照実装 (src/engine/compression.ts) を検証する。
- * WASM/C実装の圧縮正しさは以下で検証される:
- *   - C native: tests/engine/test_compression.c (mag^0.3 圧縮・微小値安定性)
- *   - WASM: tests/wasm/golden-vectors.test.ts (全パイプライン PyTorch一致)
- *   - WASM: tests/wasm/wasm-properties.test.ts (無音/最大振幅/DC offset)
+ * This test verifies the TypeScript reference implementation
+ * (src/engine/compression.ts).
+ * Compression correctness in the WASM/C implementation is verified by:
+ *   - C native: tests/engine/test_compression.c (mag^0.3 compression / small-value stability)
+ *   - WASM: tests/wasm/golden-vectors.test.ts (full pipeline matches PyTorch)
+ *   - WASM: tests/wasm/wasm-properties.test.ts (silence / max amplitude / DC offset)
  */
-describe('powerCompress 全象限', () => {
-  it('第1象限: (3, 4) → 位相 ≈ 0.927', () => {
+describe('powerCompress across all quadrants', () => {
+  it('first quadrant: (3, 4) → phase ≈ 0.927', () => {
     const result = powerCompress(3, 4);
     expect(result.mag).toBeCloseTo(5 ** 0.3, 5);
     expect(result.phase).toBeCloseTo(Math.atan2(4, 3), 10);
   });
 
-  it('第2象限: (-3, 4) → 位相 ≈ 2.214', () => {
+  it('second quadrant: (-3, 4) → phase ≈ 2.214', () => {
     const result = powerCompress(-3, 4);
     expect(result.mag).toBeCloseTo(5 ** 0.3, 5);
     expect(result.phase).toBeCloseTo(Math.atan2(4, -3), 10);
   });
 
-  it('第3象限: (-3, -4) → 位相 ≈ -2.214', () => {
+  it('third quadrant: (-3, -4) → phase ≈ -2.214', () => {
     const result = powerCompress(-3, -4);
     expect(result.mag).toBeCloseTo(5 ** 0.3, 5);
     expect(result.phase).toBeCloseTo(Math.atan2(-4, -3), 10);
   });
 
-  it('第4象限: (3, -4) → 位相 ≈ -0.927', () => {
+  it('fourth quadrant: (3, -4) → phase ≈ -0.927', () => {
     const result = powerCompress(3, -4);
     expect(result.mag).toBeCloseTo(5 ** 0.3, 5);
     expect(result.phase).toBeCloseTo(Math.atan2(-4, 3), 10);
   });
 
-  it('負の実軸: (-5, 0) → 位相 = π', () => {
+  it('negative real axis: (-5, 0) → phase = π', () => {
     const result = powerCompress(-5, 0);
     expect(result.mag).toBeCloseTo(5 ** 0.3, 5);
     expect(result.phase).toBeCloseTo(Math.PI, 10);
   });
 
-  it('負の虚軸: (0, -7) → 位相 = -π/2', () => {
+  it('negative imaginary axis: (0, -7) → phase = -π/2', () => {
     const result = powerCompress(0, -7);
     expect(result.mag).toBeCloseTo(7 ** 0.3, 5);
     expect(result.phase).toBeCloseTo(-Math.PI / 2, 10);
   });
 
-  it('全象限のラウンドトリップ', () => {
+  it('round-trips across all quadrants', () => {
     const pairs: [number, number][] = [
-      [3, 4],     // 第1象限
-      [-3, 4],    // 第2象限
-      [-3, -4],   // 第3象限
-      [3, -4],    // 第4象限
-      [-5, 0],    // 負の実軸
-      [0, -7],    // 負の虚軸
-      [0.001, -0.001], // 微小値
-      [100, 200], // 大きな値
+      [3, 4],     // first quadrant
+      [-3, 4],    // second quadrant
+      [-3, -4],   // third quadrant
+      [3, -4],    // fourth quadrant
+      [-5, 0],    // negative real axis
+      [0, -7],    // negative imaginary axis
+      [0.001, -0.001], // very small values
+      [100, 200], // large values
     ];
     for (const [re, im] of pairs) {
       const compressed = powerCompress(re, im);
@@ -68,16 +69,16 @@ describe('powerCompress 全象限', () => {
 });
 
 /**
- * applyComplexMask 追加検証
+ * Additional validation for applyComplexMask
  */
-describe('applyComplexMask 追加', () => {
-  it('負の実数マスクで位相反転', () => {
+describe('applyComplexMask additional cases', () => {
+  it('inverts phase with a negative real mask', () => {
     const result = applyComplexMask(3, 4, -1, 0);
     expect(result.real).toBeCloseTo(-3, 10);
     expect(result.imag).toBeCloseTo(-4, 10);
   });
 
-  it('純虚数マスク -i で -90度回転', () => {
+  it('rotates by -90 degrees with a purely imaginary -i mask', () => {
     const result = applyComplexMask(3, 4, 0, -1);
     expect(result.real).toBeCloseTo(4, 10);
     expect(result.imag).toBeCloseTo(-3, 10);

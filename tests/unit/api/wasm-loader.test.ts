@@ -1,24 +1,24 @@
 /**
- * wasm-loader.test.ts — WASMバリアント選択ローダーのテスト
+ * wasm-loader.test.ts — tests for the WASM variant-selection loader
  *
- * A3レビュー指摘対応: SIMD検出結果に基づいて適切なWASMビルドを選択し、
- * ロードする仕組みのテスト。
+ * Covers the A3 review feedback: select and load the appropriate WASM
+ * build based on SIMD detection results.
  */
 import { describe, it, expect } from 'vitest';
 import { selectWasmVariant, type WasmVariant } from '../../../src/api/wasm-loader';
 
 describe('selectWasmVariant', () => {
-  it('SIMD対応環境では "simd" を返す', () => {
+  it('returns "simd" in SIMD-capable environments', () => {
     const variant = selectWasmVariant(true);
     expect(variant).toBe('simd');
   });
 
-  it('SIMD非対応環境では "scalar" を返す', () => {
+  it('returns "scalar" in environments without SIMD support', () => {
     const variant = selectWasmVariant(false);
     expect(variant).toBe('scalar');
   });
 
-  it('戻り値はWasmVariant型に適合する', () => {
+  it('returns a value compatible with the WasmVariant type', () => {
     const variant: WasmVariant = selectWasmVariant(true);
     expect(['scalar', 'simd']).toContain(variant);
   });

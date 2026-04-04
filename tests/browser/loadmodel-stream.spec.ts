@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 const BASE_URL = 'http://localhost:3457';
 
-test('loadModel→createStreamDenoiser フルパスE2E', async ({ page }) => {
+test('loadModel → createStreamDenoiser full-path E2E', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (err) => errors.push(err.message));
 

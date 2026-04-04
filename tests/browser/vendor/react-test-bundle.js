@@ -17017,17 +17017,17 @@ async function createStreamDenoiser(options) {
   try {
     audioContext = new AudioContext({ sampleRate: TARGET_SAMPLE_RATE });
   } catch (err) {
-    throw new AudioContextError(`AudioContextの生成に失敗しました: ${err instanceof Error ? err.message : String(err)}`);
+    throw new AudioContextError(`Failed to create AudioContext: ${err instanceof Error ? err.message : String(err)}`);
   }
   if (audioContext.sampleRate !== TARGET_SAMPLE_RATE && onWarning) {
-    onWarning(`AudioContextのサンプルレートが${audioContext.sampleRate}Hzです（期待: ${TARGET_SAMPLE_RATE}Hz）。` + `品質が低下する可能性があります。`);
+    onWarning(`AudioContext sample rate is ${audioContext.sampleRate}Hz (expected: ${TARGET_SAMPLE_RATE}Hz).` + ` Audio quality may be reduced.`);
   }
   const processorUrl = workletUrl ?? new URL("../worklet/processor.js", import.meta.url).href;
   try {
     await audioContext.audioWorklet.addModule(processorUrl);
   } catch (err) {
     await audioContext.close();
-    throw new WorkletError(`AudioWorkletの登録に失敗しました: ${err instanceof Error ? err.message : String(err)}`);
+    throw new WorkletError(`Failed to register AudioWorklet: ${err instanceof Error ? err.message : String(err)}`);
   }
   let workletNode;
   let source;
@@ -17045,14 +17045,14 @@ async function createStreamDenoiser(options) {
   } catch (err) {
     audioContext.close().catch((closeErr) => {
       if (onWarning)
-        onWarning(`AudioContext.close()失敗: ${closeErr instanceof Error ? closeErr.message : String(closeErr)}`);
+        onWarning(`AudioContext.close() failed: ${closeErr instanceof Error ? closeErr.message : String(closeErr)}`);
     });
-    throw new WorkletError(`AudioWorkletノードの構築に失敗しました: ${err instanceof Error ? err.message : String(err)}`);
+    throw new WorkletError(`Failed to construct AudioWorklet node: ${err instanceof Error ? err.message : String(err)}`);
   }
   const initPromise = new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       workletNode.port.removeEventListener("message", handler);
-      reject(new WorkletError(`Worklet初期化タイムアウト（${WORKLET_INIT_TIMEOUT_MS / 1000}秒）`));
+      reject(new WorkletError(`Worklet initialization timed out (${WORKLET_INIT_TIMEOUT_MS / 1000}s)`));
     }, WORKLET_INIT_TIMEOUT_MS);
     const handler = (event) => {
       if (event.data?.type === "ready") {
@@ -17062,7 +17062,7 @@ async function createStreamDenoiser(options) {
       } else if (event.data?.type === "error") {
         clearTimeout(timeout);
         workletNode.port.removeEventListener("message", handler);
-        reject(new WorkletError(`Worklet初期化に失敗しました: ${event.data.message ?? "不明なエラー"}`));
+        reject(new WorkletError(`Worklet initialization failed: ${event.data.message ?? "Unknown error"}`));
       }
     };
     workletNode.port.addEventListener("message", handler);
@@ -17082,17 +17082,17 @@ async function createStreamDenoiser(options) {
       source.disconnect();
     } catch (e) {
       if (onWarning)
-        onWarning(`source.disconnect()失敗: ${e instanceof Error ? e.message : String(e)}`);
+        onWarning(`source.disconnect() failed: ${e instanceof Error ? e.message : String(e)}`);
     }
     try {
       workletNode.disconnect();
     } catch (e) {
       if (onWarning)
-        onWarning(`workletNode.disconnect()失敗: ${e instanceof Error ? e.message : String(e)}`);
+        onWarning(`workletNode.disconnect() failed: ${e instanceof Error ? e.message : String(e)}`);
     }
     audioContext.close().catch((closeErr) => {
       if (onWarning)
-        onWarning(`AudioContext.close()失敗: ${closeErr instanceof Error ? closeErr.message : String(closeErr)}`);
+        onWarning(`AudioContext.close() failed: ${closeErr instanceof Error ? closeErr.message : String(closeErr)}`);
     });
     throw err;
   }
@@ -17103,7 +17103,7 @@ async function createStreamDenoiser(options) {
   workletNode.port.addEventListener("message", (event) => {
     if (event.data?.type === "process_error" && currentState !== "destroyed") {
       if (options?.onWarning) {
-        options.onWarning(`Worklet処理エラー: ${event.data.message ?? "不明"}`);
+        options.onWarning(`Worklet processing error: ${event.data.message ?? "Unknown"}`);
       }
     }
   });
@@ -17119,7 +17119,7 @@ async function createStreamDenoiser(options) {
     },
     set bypass(value) {
       if (currentState === "destroyed") {
-        throw new DestroyedError("このStreamDenoiserは既に破棄されています");
+        throw new DestroyedError("This StreamDenoiser has already been destroyed");
       }
       bypassMode = value;
       workletNode.port.postMessage({ type: "set_bypass", enabled: value });
@@ -17129,7 +17129,7 @@ async function createStreamDenoiser(options) {
     },
     set agcEnabled(value) {
       if (currentState === "destroyed") {
-        throw new DestroyedError("このStreamDenoiserは既に破棄されています");
+        throw new DestroyedError("This StreamDenoiser has already been destroyed");
       }
       agcMode = value;
       workletNode.port.postMessage({ type: "set_agc", enabled: value });
@@ -17139,7 +17139,7 @@ async function createStreamDenoiser(options) {
     },
     set hpfEnabled(value) {
       if (currentState === "destroyed") {
-        throw new DestroyedError("このStreamDenoiserは既に破棄されています");
+        throw new DestroyedError("This StreamDenoiser has already been destroyed");
       }
       hpfMode = value;
       workletNode.port.postMessage({ type: "set_hpf", enabled: value });
@@ -17152,29 +17152,29 @@ async function createStreamDenoiser(options) {
         source.disconnect();
       } catch (e) {
         if (onWarning)
-          onWarning(`destroy時source.disconnect()失敗: ${e instanceof Error ? e.message : String(e)}`);
+          onWarning(`source.disconnect() failed during destroy: ${e instanceof Error ? e.message : String(e)}`);
       }
       try {
         workletNode.disconnect();
       } catch (e) {
         if (onWarning)
-          onWarning(`destroy時workletNode.disconnect()失敗: ${e instanceof Error ? e.message : String(e)}`);
+          onWarning(`workletNode.disconnect() failed during destroy: ${e instanceof Error ? e.message : String(e)}`);
       }
       workletNode.port.postMessage({ type: "destroy" });
       destination.stream.getTracks().forEach((track) => track.stop());
       audioContext.close().catch((e) => {
         if (onWarning)
-          onWarning(`destroy時AudioContext.close()失敗: ${e instanceof Error ? e.message : String(e)}`);
+          onWarning(`AudioContext.close() failed during destroy: ${e instanceof Error ? e.message : String(e)}`);
       });
     },
     getWorkletState() {
       if (currentState === "destroyed") {
-        return Promise.reject(new DestroyedError("このStreamDenoiserは既に破棄されています"));
+        return Promise.reject(new DestroyedError("This StreamDenoiser has already been destroyed"));
       }
       return new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
           workletNode.port.removeEventListener("message", handler);
-          reject(new WorkletError(`Worklet状態取得タイムアウト（${WORKLET_STATE_TIMEOUT_MS / 1000}秒）`));
+          reject(new WorkletError(`Timed out while getting Worklet state (${WORKLET_STATE_TIMEOUT_MS / 1000}s)`));
         }, WORKLET_STATE_TIMEOUT_MS);
         const handler = (event) => {
           if (event.data?.type === "state") {
@@ -17205,7 +17205,7 @@ function recommendModel(options) {
   const rec = RECOMMENDATIONS[priority];
   if (!rec) {
     const valid = Object.keys(RECOMMENDATIONS).join(", ");
-    throw new ValidationError(`不正なpriority: '${String(priority)}'。有効な値: ${valid}`);
+    throw new ValidationError(`Invalid priority: '${String(priority)}'. Valid values: ${valid}`);
   }
   const model = MODEL_CATALOG[rec.index];
   return { ...model, reason: rec.reason };
@@ -17220,7 +17220,7 @@ var init_models = __esm(() => {
       params: 28000,
       wasmSizeKB: 52,
       hopSize: 512,
-      description: "最軽量モデル。低レイテンシ環境やモバイル向け。"
+      description: "Lightest model. Suitable for low-latency environments and mobile."
     },
     {
       id: "base",
@@ -17228,7 +17228,7 @@ var init_models = __esm(() => {
       params: 101000,
       wasmSizeKB: 65,
       hopSize: 512,
-      description: "バランス型モデル。多くのユースケースに推奨。"
+      description: "Balanced model. Recommended for many use cases."
     },
     {
       id: "small",
@@ -17236,21 +17236,21 @@ var init_models = __esm(() => {
       params: 207000,
       wasmSizeKB: 75,
       hopSize: 512,
-      description: "高品質モデル。デスクトップ環境で最高の音質を実現。"
+      description: "High-quality model. Delivers the best sound quality on desktop environments."
     }
   ];
   RECOMMENDATIONS = {
     speed: {
       index: 0,
-      reason: "処理速度を最優先。モバイルや低スペック環境で安定動作。"
+      reason: "Prioritizes processing speed above all else. Stable on mobile and low-spec environments."
     },
     balanced: {
       index: 1,
-      reason: "品質と速度のバランスが良く、多くの環境で推奨。"
+      reason: "Well balanced between quality and speed, and recommended for most environments."
     },
     quality: {
       index: 2,
-      reason: "最高品質のノイズ除去。デスクトップ環境向け。"
+      reason: "Highest-quality noise removal. Intended for desktop environments."
     }
   };
 });
@@ -17267,19 +17267,19 @@ async function diagnose() {
   const issues = [];
   const wasm = typeof WebAssembly !== "undefined";
   if (!wasm) {
-    issues.push("WebAssemblyが利用できません。モダンブラウザが必要です。");
+    issues.push("WebAssembly is not available. A modern browser is required.");
   }
   const simd = await detectSimd();
   if (wasm && !simd) {
-    issues.push("WASM SIMDが利用できません。Chrome 91+/Firefox 89+/Safari 16.4+が必要です。");
+    issues.push("WASM SIMD is not available. Chrome 91+/Firefox 89+/Safari 16.4+ is required.");
   }
   const audioContext = typeof AudioContext !== "undefined";
   if (!audioContext) {
-    issues.push("AudioContextが利用できません。Web Audio APIに対応したブラウザが必要です。");
+    issues.push("AudioContext is not available. A browser with Web Audio API support is required.");
   }
   const audioWorklet = typeof AudioWorkletNode !== "undefined";
   if (!audioWorklet) {
-    issues.push("AudioWorkletが利用できません。Chrome 66+/Firefox 76+/Safari 14.1+が必要です。");
+    issues.push("AudioWorklet is not available. Chrome 66+/Firefox 76+/Safari 14.1+ is required.");
   }
   const overall = wasm && audioContext && audioWorklet;
   return { wasm, simd, audioContext, audioWorklet, overall, issues };
@@ -17461,7 +17461,7 @@ function createDenoiserInstance(initialWasm, initialStatePtr, initialHopSize) {
           const weightLen = weightBytes.byteLength;
           const weightPtr = newWasm._malloc(weightLen);
           if (weightPtr === 0) {
-            throw new ModelInitError("WASMヒープのメモリ確保に失敗しました");
+            throw new ModelInitError("Failed to allocate memory on the WASM heap");
           }
           let newStatePtr;
           try {
@@ -17475,7 +17475,7 @@ function createDenoiserInstance(initialWasm, initialStatePtr, initialHopSize) {
             return;
           }
           if (newStatePtr === 0) {
-            throw new ModelInitError("新モデルの初期化に失敗しました");
+            throw new ModelInitError("Failed to initialize the new model");
           }
           const oldWasm = wasm;
           const oldStatePtr = statePtr;
@@ -17516,7 +17516,7 @@ async function createDenoiser(options) {
   const weightLen = weightBytes.byteLength;
   const weightPtr = wasm._malloc(weightLen);
   if (weightPtr === 0) {
-    throw new ModelInitError("WASMヒープのメモリ確保に失敗しました");
+    throw new ModelInitError("Failed to allocate memory on the WASM heap");
   }
   let statePtr;
   try {
@@ -17527,7 +17527,7 @@ async function createDenoiser(options) {
     wasm._free(weightPtr);
   }
   if (statePtr === 0) {
-    throw new ModelInitError("デノイザーエンジンの初期化に失敗しました");
+    throw new ModelInitError("Failed to initialize the denoiser engine");
   }
   const hopSize = wasm._fe_get_hop_size(statePtr);
   return createDenoiserInstance(wasm, statePtr, hopSize);
@@ -17575,7 +17575,7 @@ async function detectSimd2() {
 }
 function loadModel(modelSize, options) {
   if (!VALID_MODELS.includes(modelSize)) {
-    throw new ValidationError(`不正なモデルサイズ: "${modelSize}"。有効値: ${VALID_MODELS.join(", ")}`);
+    throw new ValidationError(`Invalid model size: "${modelSize}". Valid values: ${VALID_MODELS.join(", ")}`);
   }
   const simd = options?.simd;
   const baseUrl = options?.baseUrl;
@@ -17608,13 +17608,13 @@ async function loadModelImpl(modelSize, simdOption, baseUrlOption) {
       fetch(exportMapUrl)
     ]);
     if (!wasmRes.ok) {
-      throw new WasmLoadError(`WASMバイナリの取得に失敗: ${wasmRes.status} ${wasmRes.statusText} (${wasmBinaryUrl})`);
+      throw new WasmLoadError(`Failed to fetch WASM binary: ${wasmRes.status} ${wasmRes.statusText} (${wasmBinaryUrl})`);
     }
     if (!weightRes.ok) {
-      throw new WasmLoadError(`重みファイルの取得に失敗: ${weightRes.status} ${weightRes.statusText} (${weightUrl})`);
+      throw new WasmLoadError(`Failed to fetch weight file: ${weightRes.status} ${weightRes.statusText} (${weightUrl})`);
     }
     if (!mapRes.ok) {
-      throw new WasmLoadError(`エクスポートマップの取得に失敗: ${mapRes.status} ${mapRes.statusText} (${exportMapUrl})`);
+      throw new WasmLoadError(`Failed to fetch export map: ${mapRes.status} ${mapRes.statusText} (${exportMapUrl})`);
     }
     [wasmBytes, weightData, exportMap] = await Promise.all([
       wasmRes.arrayBuffer(),
@@ -17624,14 +17624,14 @@ async function loadModelImpl(modelSize, simdOption, baseUrlOption) {
   } catch (err) {
     if (err instanceof WasmLoadError)
       throw err;
-    throw new WasmLoadError(`モデルリソースの読み込みに失敗しました: ${err instanceof Error ? err.message : String(err)}`);
+    throw new WasmLoadError(`Failed to load model resources: ${err instanceof Error ? err.message : String(err)}`);
   }
   const modelSizeId = MODEL_SIZE_IDS[modelSize];
   const wasmFactory = async () => {
     const mod = await import(wasmJsUrl);
     const factory = typeof mod.default === "function" ? mod.default : typeof mod === "function" ? mod : null;
     if (!factory) {
-      throw new WasmLoadError("WASMモジュールからfactory関数を取得できませんでした");
+      throw new WasmLoadError("Could not get the factory function from the WASM module");
     }
     return factory();
   };
@@ -17719,7 +17719,7 @@ function useDenoiser(modelSize, options) {
       try {
         sd.destroy();
       } catch (e) {
-        console.warn("useDenoiser cleanup時のdestroy失敗:", e instanceof Error ? e.message : String(e));
+        console.warn("useDenoiser destroy failed during cleanup:", e instanceof Error ? e.message : String(e));
       }
       streamDenoiserRef.current = null;
     }
@@ -17727,7 +17727,7 @@ function useDenoiser(modelSize, options) {
   }, []);
   const start = import_react.useCallback(async (inputStream) => {
     if (destroyedRef.current) {
-      setError(new DestroyedError("このuseDenoiserは既に破棄されています"));
+      setError(new DestroyedError("This useDenoiser instance has already been destroyed"));
       setState("error");
       return;
     }
@@ -17752,7 +17752,7 @@ function useDenoiser(modelSize, options) {
         try {
           sd.destroy();
         } catch (e) {
-          console.warn("useDenoiser レース条件cleanup時のdestroy失敗:", e instanceof Error ? e.message : String(e));
+          console.warn("useDenoiser destroy failed during race-condition cleanup:", e instanceof Error ? e.message : String(e));
         }
         return;
       }
@@ -17853,7 +17853,7 @@ function TestApp() {
 }
 async function main() {
   const statusEl = document.getElementById("status");
-  statusEl.textContent = "React レンダリング中...";
+  statusEl.textContent = "React rendering...";
   const root = import_client.createRoot(document.getElementById("root"));
   root.render(import_react2.default.createElement(TestApp));
   statusEl.textContent = "ready";

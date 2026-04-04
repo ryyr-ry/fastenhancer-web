@@ -1,9 +1,9 @@
 /**
- * wasm-binary.test.ts — WASM バイナリURL生成とローダーのテスト
+ * wasm-binary.test.ts — tests for WASM binary URL generation and loading
  *
- * A2レビュー指摘対応: AudioWorkletはEmscripten glueを使えないため、
- * 生の.wasmバイナリを直接ロードする仕組みが必要。
- * このモジュールはWASMバイナリのURL生成とフェッチを担当する。
+ * Covers the A2 review feedback: AudioWorklet cannot use Emscripten glue,
+ * so it needs a mechanism to load raw .wasm binaries directly.
+ * This module is responsible for generating WASM binary URLs and fetching them.
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -12,42 +12,42 @@ import {
 } from '../../../src/api/wasm-binary';
 
 describe('getWasmBinaryPath', () => {
-  it('tiny + simd の正しいパスを返す', () => {
+  it('returns the correct path for tiny + simd', () => {
     const path = getWasmBinaryPath('tiny', 'simd');
     expect(path).toBe('fastenhancer-tiny-simd.wasm');
   });
 
-  it('tiny + scalar の正しいパスを返す', () => {
+  it('returns the correct path for tiny + scalar', () => {
     const path = getWasmBinaryPath('tiny', 'scalar');
     expect(path).toBe('fastenhancer-tiny-scalar.wasm');
   });
 
-  it('base + simd の正しいパスを返す', () => {
+  it('returns the correct path for base + simd', () => {
     const path = getWasmBinaryPath('base', 'simd');
     expect(path).toBe('fastenhancer-base-simd.wasm');
   });
 
-  it('small + scalar の正しいパスを返す', () => {
+  it('returns the correct path for small + scalar', () => {
     const path = getWasmBinaryPath('small', 'scalar');
     expect(path).toBe('fastenhancer-small-scalar.wasm');
   });
 
-  it('baseUrlを指定した場合、プレフィックスとして付加される', () => {
+  it('adds baseUrl as a prefix when specified', () => {
     const path = getWasmBinaryPath('tiny', 'simd', '/assets/wasm/');
     expect(path).toBe('/assets/wasm/fastenhancer-tiny-simd.wasm');
   });
 
-  it('baseUrlが末尾スラッシュなしでも正しく結合する', () => {
+  it('joins baseUrl correctly even without a trailing slash', () => {
     const path = getWasmBinaryPath('tiny', 'simd', '/assets/wasm');
     expect(path).toBe('/assets/wasm/fastenhancer-tiny-simd.wasm');
   });
 
-  it('baseUrlがhttpsの場合も正しく動作する', () => {
+  it('works correctly when baseUrl uses https', () => {
     const path = getWasmBinaryPath('base', 'scalar', 'https://cdn.example.com/wasm/');
     expect(path).toBe('https://cdn.example.com/wasm/fastenhancer-base-scalar.wasm');
   });
 
-  it('全モデルサイズに対応し、命名規則が一貫している', () => {
+  it('supports all model sizes with consistent naming', () => {
     const sizes: ModelSize[] = ['tiny', 'base', 'small'];
     const variants = ['simd', 'scalar'] as const;
     for (const size of sizes) {

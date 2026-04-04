@@ -1,6 +1,6 @@
 /**
- * ブラウザ互換性診断
- * WebAssembly, WASM SIMD, AudioContext, AudioWorkletの対応状況を検出する。
+ * Browser compatibility diagnostics.
+ * Detects support for WebAssembly, WASM SIMD, AudioContext, and AudioWorklet.
  */
 
 import { detectSimdSupport } from './simd-detect.js';
@@ -10,9 +10,9 @@ export interface DiagnoseResult {
   simd: boolean;
   audioContext: boolean;
   audioWorklet: boolean;
-  /** 最低限動作するか (wasm && audioContext && audioWorklet) */
+  /** Whether the minimum required features are available (wasm && audioContext && audioWorklet) */
   overall: boolean;
-  /** 推奨環境を満たすか (overall && simd) */
+  /** Whether the recommended environment is satisfied (overall && simd) */
   recommended: boolean;
   issues: string[];
 }
@@ -30,22 +30,22 @@ export async function diagnose(): Promise<DiagnoseResult> {
 
   const wasm = typeof WebAssembly !== 'undefined';
   if (!wasm) {
-    issues.push('WebAssemblyが利用できません。モダンブラウザが必要です。');
+    issues.push('WebAssembly is not available. A modern browser is required.');
   }
 
   const simd = await detectSimd();
   if (wasm && !simd) {
-    issues.push('WASM SIMDが利用できません。Chrome 91+/Firefox 89+/Safari 16.4+が必要です。scalarフォールバックで動作しますが、パフォーマンスが低下します。');
+    issues.push('WASM SIMD is not available. Chrome 91+, Firefox 89+, or Safari 16.4+ is required. The scalar fallback will still work, but performance will be reduced.');
   }
 
   const audioContext = typeof AudioContext !== 'undefined';
   if (!audioContext) {
-    issues.push('AudioContextが利用できません。Web Audio APIに対応したブラウザが必要です。');
+    issues.push('AudioContext is not available. A browser with Web Audio API support is required.');
   }
 
   const audioWorklet = typeof AudioWorkletNode !== 'undefined';
   if (!audioWorklet) {
-    issues.push('AudioWorkletが利用できません。Chrome 66+/Firefox 76+/Safari 14.1+が必要です。');
+    issues.push('AudioWorklet is not available. Chrome 66+, Firefox 76+, or Safari 14.1+ is required.');
   }
 
   const overall = wasm && audioContext && audioWorklet;

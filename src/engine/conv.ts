@@ -1,10 +1,10 @@
 /**
- * 1D畳み込み演算モジュール (TypeScript参照実装)
- * Cエンジンの conv.c と同等の純TypeScript実装。
+ * 1D convolution operations module (TypeScript reference implementation)
+ * Pure TypeScript implementation equivalent to the C engine's conv.c.
  */
 
 /**
- * 1D畳み込み (single channel, single filter)
+ * 1D convolution (single channel, single filter)
  * output[i] = sum_k input[i*stride + k] * kernel[k]  (for valid positions)
  */
 export function conv1d(
@@ -34,7 +34,7 @@ export function conv1d(
 }
 
 /**
- * Strided 1D畳み込み
+ * Strided 1D convolution
  */
 export function stridedConv(
   input: Float32Array,
@@ -60,7 +60,7 @@ export function stridedConv(
 }
 
 /**
- * Transposed 1D畳み込み
+ * Transposed 1D convolution
  * output_length = (inputLen - 1) * stride + kernelLen
  */
 export function convTranspose1d(

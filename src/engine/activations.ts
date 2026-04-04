@@ -1,7 +1,7 @@
 /**
- * 活性化関数モジュール (TypeScript参照実装)
- * Cエンジンの活性化関数と同等の純TypeScript実装。
- * テスト・検証用。ブラウザ実行時はWASM側を使う。
+ * Activation functions module (TypeScript reference implementation)
+ * Pure TypeScript implementation equivalent to the C engine activation functions.
+ * For testing and verification. Use the WASM side in the browser runtime.
  */
 
 export function sigmoid(x: number): number {
@@ -26,8 +26,8 @@ export function tanhActivation(x: number): number {
 }
 
 /**
- * 多項式近似sigmoid (C SIMD版と同等)
- * [-8, 8]範囲で4-5次ミニマックス近似、max error < 1e-4
+ * Polynomial sigmoid approximation (equivalent to the C SIMD version)
+ * 4th-5th order minimax approximation over the [-8, 8] range, max error < 1e-4
  */
 export function polynomialSigmoid(x: number): number {
   if (Number.isNaN(x)) throw new Error('NaN input to polynomialSigmoid');
@@ -36,8 +36,8 @@ export function polynomialSigmoid(x: number): number {
 
   const clamped = Math.max(-8, Math.min(8, x));
 
-  // 5次ミニマックス近似 (Remez算法由来の係数)
-  // f(x) ≈ 0.5 + ax + bx^3 + cx^5 (奇関数部分のみ)
+  // 5th-order minimax approximation (coefficients derived from the Remez algorithm)
+  // f(x) ≈ 0.5 + ax + bx^3 + cx^5 (odd-function part only)
   const a = 0.2310586;
   const b = -0.0068706;
   const c = 0.0000784;

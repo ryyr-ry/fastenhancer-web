@@ -1,11 +1,12 @@
 /**
- * wasm-differential.test.ts — 4系統差分テスト (4-E)
+ * wasm-differential.test.ts — four-path differential test (4-E)
  *
- * C native / WASM scalar / WASM SIMD の出力を同一入力で比較し、
- * 全系統が一致することを検証する。
+ * Compares the outputs of C native / WASM scalar / WASM SIMD with the
+ * same input and verifies that all paths match.
  *
- * C native出力はgolden vectorファイルが担う（PyTorch→C native→golden vector）。
- * WASM scalar ↔ WASM SIMD の差分は直接比較する。
+ * The golden vector files represent the C native output
+ * (PyTorch → C native → golden vector).
+ * Differences between WASM scalar and WASM SIMD are compared directly.
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -21,7 +22,7 @@ import {
 const HOP_SIZE = 512;
 const MODEL_IDS: Record<ModelSize, number> = { tiny: 0, base: 1, small: 2 };
 
-describe('4系統差分テスト', () => {
+describe('Four-path differential test', () => {
   for (const model of ['tiny', 'base', 'small'] as ModelSize[]) {
     describe(model, () => {
       it('C native (golden) ↔ WASM scalar: MSE < 1e-10', async () => {
@@ -88,7 +89,7 @@ describe('4系統差分テスト', () => {
     });
   }
 
-  it('全系統の出力サンプルが有限値 (全モデル)', async () => {
+  it('keeps all output samples finite across every path (all models)', async () => {
     for (const model of ['tiny', 'base', 'small'] as ModelSize[]) {
       const scalarMod = await loadWasmModule(model, 'scalar');
       const simdMod = await loadWasmModule(model, 'simd');

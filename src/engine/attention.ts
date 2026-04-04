@@ -1,18 +1,18 @@
 /**
- * マルチヘッドアテンション (TypeScript参照実装)
- * Cエンジンの attention.c と同等の純TypeScript実装。
+ * Multi-head attention (TypeScript reference implementation)
+ * Pure TypeScript implementation equivalent to the C engine's attention.c.
  */
 
 export interface MhaWeights {
-  W_qkv: Float32Array; // [dim, dim * 3] — Q/K/V融合投影
+  W_qkv: Float32Array; // [dim, dim * 3] — fused Q/K/V projection
   b_qkv: Float32Array; // [dim * 3]
-  W_out: Float32Array;  // [dim, dim] — 出力投影
+  W_out: Float32Array;  // [dim, dim] — output projection
   b_out: Float32Array;  // [dim]
 }
 
 /**
- * マルチヘッドアテンション
- * input: [seqLen * dim] (行優先: 各行がseqの1ステップ)
+ * Multi-head attention
+ * input: [seqLen * dim] (row-major: each row is one step of the sequence)
  * output: [seqLen * dim]
  */
 export function multiHeadAttention(
@@ -25,7 +25,7 @@ export function multiHeadAttention(
   const headDim = dim / nHeads;
   const dim3 = dim * 3;
 
-  // QKV投影: [seqLen, dim] × [dim, 3*dim] + bias → [seqLen, 3*dim]
+  // QKV projection: [seqLen, dim] × [dim, 3*dim] + bias → [seqLen, 3*dim]
   const qkv = new Float32Array(seqLen * dim3);
   for (let s = 0; s < seqLen; s++) {
     for (let j = 0; j < dim3; j++) {
@@ -37,7 +37,7 @@ export function multiHeadAttention(
     }
   }
 
-  // Q, K, V を分離 (各 [seqLen, dim])
+  // Split Q, K, and V (each [seqLen, dim])
   const q = new Float32Array(seqLen * dim);
   const k = new Float32Array(seqLen * dim);
   const v = new Float32Array(seqLen * dim);
@@ -51,11 +51,11 @@ export function multiHeadAttention(
 
   const attnOut = new Float32Array(seqLen * dim);
 
-  // ヘッドごとのアテンション
+  // Per-head attention
   for (let h = 0; h < nHeads; h++) {
     const offset = h * headDim;
 
-    // アテンションスコア: [seqLen, seqLen]
+    // Attention scores: [seqLen, seqLen]
     const scores = new Float32Array(seqLen * seqLen);
     const scale = 1.0 / Math.sqrt(headDim);
 
@@ -69,7 +69,7 @@ export function multiHeadAttention(
       }
     }
 
-    // Softmax (行単位)
+    // Softmax (per row)
     for (let i = 0; i < seqLen; i++) {
       let maxVal = -Infinity;
       for (let j = 0; j < seqLen; j++) {
@@ -100,7 +100,7 @@ export function multiHeadAttention(
     }
   }
 
-  // 出力投影: [seqLen, dim] × [dim, dim] + bias → [seqLen, dim]
+  // Output projection: [seqLen, dim] × [dim, dim] + bias → [seqLen, dim]
   const output = new Float32Array(seqLen * dim);
   for (let s = 0; s < seqLen; s++) {
     for (let j = 0; j < dim; j++) {

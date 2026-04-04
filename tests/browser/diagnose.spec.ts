@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 const BASE_URL = 'http://localhost:3457';
 
-test('diagnose() がChromiumで全機能対応を検出する', async ({ page }) => {
+test('diagnose() detects full feature support in Chromium', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (err) => errors.push(err.message));
 
@@ -28,7 +28,7 @@ test('diagnose() がChromiumで全機能対応を検出する', async ({ page })
   expect(content).toContain('OK: issuesEmpty');
 });
 
-test('diagnose() がissuesを返す（AudioWorklet非対応環境シミュレーション）', async ({ page }) => {
+test('diagnose() returns issues (simulated environment without AudioWorklet support)', async ({ page }) => {
   await page.addInitScript(() => {
     Object.defineProperty(globalThis, 'AudioWorkletNode', {
       value: undefined,

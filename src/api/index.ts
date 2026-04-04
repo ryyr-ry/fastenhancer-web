@@ -42,7 +42,7 @@ function resolveModelSizeId(model: Model, explicitId?: number): number {
   const id = MODEL_SIZE_ID_MAP[model.size];
   if (id === undefined) {
     throw new ValidationError(
-      `不明なモデルサイズ: "${model.size}"。有効値: tiny, base, small`,
+      `Unknown model size: "${model.size}". Valid values: tiny, base, small`,
     );
   }
   return id;
@@ -260,7 +260,7 @@ function createDenoiserInstance(initialWasm: WasmInstance, initialStatePtr: numb
         const weightLen = weightBytes.byteLength;
         const weightPtr = newWasm._malloc(weightLen);
         if (weightPtr === 0) {
-          throw new ModelInitError('WASMヒープのメモリ確保に失敗しました');
+          throw new ModelInitError('Failed to allocate memory in the WASM heap');
         }
 
         let newStatePtr: number;
@@ -277,7 +277,7 @@ function createDenoiserInstance(initialWasm: WasmInstance, initialStatePtr: numb
         }
 
         if (newStatePtr === 0) {
-          throw new ModelInitError('新モデルの初期化に失敗しました');
+          throw new ModelInitError('Failed to initialize the new model');
         }
 
         const oldWasm = wasm;
@@ -331,7 +331,7 @@ export async function createDenoiser(options: {
   const weightLen = weightBytes.byteLength;
   const weightPtr = wasm._malloc(weightLen);
   if (weightPtr === 0) {
-    throw new ModelInitError('WASMヒープのメモリ確保に失敗しました');
+    throw new ModelInitError('Failed to allocate memory in the WASM heap');
   }
 
   let statePtr: number;
@@ -344,7 +344,7 @@ export async function createDenoiser(options: {
   }
 
   if (statePtr === 0) {
-    throw new ModelInitError('デノイザーエンジンの初期化に失敗しました');
+    throw new ModelInitError('Failed to initialize the denoiser engine');
   }
 
   const hopSize = wasm._fe_get_hop_size(statePtr);
