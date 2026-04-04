@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>stream-denoiser E2Eテスト</title>
+</head>
+<body>
+  <button id="startBtn">テスト開始</button>
+  <div id="result"></div>
+  <script type="module">
+    import { createStreamDenoiser } from '/dist/api/stream-denoiser.js';
+
+    document.getElementById('startBtn').addEventListener('click', async () => {
+      const resultEl = document.getElementById('result');
+      const lines = [];
+      let allOk = true;
+
+      function check(name, condition) {
+        if (condition) {
+          lines.push('OK: ' + name);
+        } else {
+          lines.push('FAIL: ' + name);
+          allOk = false;
+        }
+      }
+
+      let inputCtx = null;
+      try {
+        const [wasmRes, weightsRes, mapRes] = await Promise.all([
+          fetch('/dist/wasm/fastenhancer-tiny-simd.wasm'),
+          fetch('/weights/fe_tiny_48k.bin'),
+          fetch('/dist/wasm/fastenhancer-tiny-simd-exports.json'),
+        ]);
+        const wasmBytes = await wasmRes.arrayBuffer();
+        const weightBytes = await weightsRes.arrayBuffer();
+        const exportMap = await mapRes.json();
+
+        inputCtx = new AudioContext({ sampleRate: 48000 });
+        const osc = inputCtx.createOscillator();
+        osc.frequency.value = 440;
+        const dest = inputCtx.createMediaStreamDestination();
+        osc.connect(dest);
+        osc.start();
+
+        const denoiser = await createStreamDenoiser({
+          inputStream: dest.stream,
+          wasmBytes,
+          weightBytes,
+          exportMap,
+          modelSize: 0,
+          workletUrl: '/dist/worklet/processor.js',
+        });
+
+        check('outputStreamExists', denoiser.outputStream instanceof MediaStream);
+        check('outputStreamHasTracks', denoiser.outputStream.getAudioTracks().length > 0);
+        check('stateRunning', denoiser.state === 'running');
+
+        denoiser.bypass = true;
+        check('bypassOn', denoiser.bypass === true);
+
+        const workletBypassState = await denoiser.getWorkletState();
+        check('workletBypassOn', workletBypassState.bypass === true);
+
+        denoiser.bypass = false;
+        check('bypassOff', denoiser.bypass === false);
+
+        denoiser.agcEnabled = true;
+        check('agcOn', denoiser.agcEnabled === true);
+
+        const workletAgcState = await denoiser.getWorkletState();
+        check('workletAgcOn', workletAgcState.agcEnabled === true);
+
+        denoiser.agcEnabled = false;
+        check('agcOff', denoiser.agcEnabled === false);
+
+        denoiser.hpfEnabled = true;
+        check('hpfOn', denoiser.hpfEnabled === true);
+
+        const workletHpfState = await denoiser.getWorkletState();
+        check('workletHpfOn', workletHpfState.hpfEnabled === true);
+
+        denoiser.hpfEnabled = false;
+        check('hpfOff', denoiser.hpfEnabled === false);
+
+        denoiser.destroy();
+        check('stateDestroyed', denoiser.state === 'destroyed');
+
+        denoiser.destroy();
+        check('destroyIdempotent', denoiser.state === 'destroyed');
+
+        let bypassThrew = false;
+        try { denoiser.bypass = true; } catch (e) {
+          bypassThrew = true;
+          check('destroyedErrorName', e.constructor.name === 'DestroyedError');
+        }
+        check('bypassAfterDestroyThrows', bypassThrew);
+
+        let agcThrew = false;
+        try { denoiser.agcEnabled = true; } catch { agcThrew = true; }
+        check('agcAfterDestroyThrows', agcThrew);
+
+        let hpfThrew = false;
+        try { denoiser.hpfEnabled = true; } catch { hpfThrew = true; }
+        check('hpfAfterDestroyThrows', hpfThrew);
+
+        osc.stop();
+      } catch (err) {
+        lines.push('FAIL: ' + err.message);
+        allOk = false;
+      } finally {
+        if (inputCtx) inputCtx.close().catch(() => {});
+      }
+
+      lines.push(allOk
+        ? '[PASS] stream-denoiser test passed!'
+        : '[FAIL] stream-denoiser test failed');
+      resultEl.textContent = lines.join('\n');
+    });
+  </script>
+</body>
+</html>

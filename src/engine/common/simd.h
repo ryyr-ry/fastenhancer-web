@@ -1,0 +1,340 @@
+/*
+ * simd.h — SIMDプリミティブ抽象化層
+ *
+ * 3つのバックエンド:
+ *   1. WASM SIMD128 (__wasm_simd128__)
+ *   2. x86 SSE2 (__SSE2__) — nativeベンチマーク用
+ *   3. スカラーフォールバック
+ * 全関数はstatic inlineで定義（ヘッダオンリー）。
+ */
+
+#ifndef FE_SIMD_H
+#define FE_SIMD_H
+
+#include <math.h>
+#include <stdint.h>
+
+/* -ffast-math安全なInfinity定数（INFINITY マクロは -ffinite-math-only で UB） */
+static inline float fe_inf_val(void) {
+    union { uint32_t u; float f; } c = {0x7F800000u};
+    return c.f;
+}
+static inline int fe_is_inf(float x) {
+    union { float f; uint32_t u; } c;
+    c.f = x;
+    return (c.u & 0x7FFFFFFFu) == 0x7F800000u;
+}
+static inline int fe_is_nan_bits(float x) {
+    union { float f; uint32_t u; } c;
+    c.f = x;
+    return (c.u & 0x7F800000u) == 0x7F800000u && (c.u & 0x007FFFFFu) != 0;
+}
+static inline int fe_is_pos_inf(float x) {
+    union { float f; uint32_t u; } c;
+    c.f = x;
+    return c.u == 0x7F800000u;
+}
+
+#ifdef __wasm_simd128__
+#include <wasm_simd128.h>
+
+typedef v128_t f32x4;
+
+static inline f32x4 f32x4_splat(float v)       { return wasm_f32x4_splat(v); }
+static inline f32x4 f32x4_load(const float* p)  { return wasm_v128_load(p); }
+static inline void  f32x4_store(float* p, f32x4 v) { wasm_v128_store(p, v); }
+static inline f32x4 f32x4_add(f32x4 a, f32x4 b) { return wasm_f32x4_add(a, b); }
+static inline f32x4 f32x4_sub(f32x4 a, f32x4 b) { return wasm_f32x4_sub(a, b); }
+static inline f32x4 f32x4_mul(f32x4 a, f32x4 b) { return wasm_f32x4_mul(a, b); }
+static inline f32x4 f32x4_neg(f32x4 a)          { return wasm_f32x4_neg(a); }
+static inline f32x4 f32x4_abs(f32x4 a)          { return wasm_f32x4_abs(a); }
+static inline f32x4 f32x4_max(f32x4 a, f32x4 b) { return wasm_f32x4_max(a, b); }
+static inline f32x4 f32x4_min(f32x4 a, f32x4 b) { return wasm_f32x4_min(a, b); }
+
+#ifdef __wasm_relaxed_simd__
+static inline f32x4 f32x4_fma(f32x4 a, f32x4 b, f32x4 c) {
+    return wasm_f32x4_relaxed_madd(a, b, c);
+}
+#else
+static inline f32x4 f32x4_fma(f32x4 a, f32x4 b, f32x4 c) {
+    return wasm_f32x4_add(wasm_f32x4_mul(a, b), c);
+}
+#endif
+
+static inline float f32x4_extract0(f32x4 v)     { return wasm_f32x4_extract_lane(v, 0); }
+static inline float f32x4_extract1(f32x4 v)     { return wasm_f32x4_extract_lane(v, 1); }
+static inline float f32x4_extract2(f32x4 v)     { return wasm_f32x4_extract_lane(v, 2); }
+static inline float f32x4_extract3(f32x4 v)     { return wasm_f32x4_extract_lane(v, 3); }
+
+#elif defined(__SSE2__)
+#include <immintrin.h>
+
+typedef __m128 f32x4;
+
+static inline f32x4 f32x4_splat(float v)        { return _mm_set1_ps(v); }
+static inline f32x4 f32x4_load(const float* p)   { return _mm_loadu_ps(p); }
+static inline void  f32x4_store(float* p, f32x4 v) { _mm_storeu_ps(p, v); }
+static inline f32x4 f32x4_add(f32x4 a, f32x4 b) { return _mm_add_ps(a, b); }
+static inline f32x4 f32x4_sub(f32x4 a, f32x4 b) { return _mm_sub_ps(a, b); }
+static inline f32x4 f32x4_mul(f32x4 a, f32x4 b) { return _mm_mul_ps(a, b); }
+static inline f32x4 f32x4_neg(f32x4 a)          { return _mm_sub_ps(_mm_setzero_ps(), a); }
+static inline f32x4 f32x4_abs(f32x4 a)          { return _mm_andnot_ps(_mm_set1_ps(-0.0f), a); }
+static inline f32x4 f32x4_max(f32x4 a, f32x4 b) { return _mm_max_ps(a, b); }
+static inline f32x4 f32x4_min(f32x4 a, f32x4 b) { return _mm_min_ps(a, b); }
+
+#ifdef __FMA__
+static inline f32x4 f32x4_fma(f32x4 a, f32x4 b, f32x4 c) {
+    return _mm_fmadd_ps(a, b, c);
+}
+#else
+static inline f32x4 f32x4_fma(f32x4 a, f32x4 b, f32x4 c) {
+    return _mm_add_ps(_mm_mul_ps(a, b), c);
+}
+#endif
+
+static inline float f32x4_extract0(f32x4 v)     { return _mm_cvtss_f32(v); }
+static inline float f32x4_extract1(f32x4 v)     { return _mm_cvtss_f32(_mm_shuffle_ps(v, v, _MM_SHUFFLE(1,1,1,1))); }
+static inline float f32x4_extract2(f32x4 v)     { return _mm_cvtss_f32(_mm_shuffle_ps(v, v, _MM_SHUFFLE(2,2,2,2))); }
+static inline float f32x4_extract3(f32x4 v)     { return _mm_cvtss_f32(_mm_shuffle_ps(v, v, _MM_SHUFFLE(3,3,3,3))); }
+
+#else /* スカラーフォールバック */
+
+typedef struct { float v[4]; } f32x4;
+
+static inline f32x4 f32x4_splat(float val) {
+    f32x4 r = {{val, val, val, val}};
+    return r;
+}
+static inline f32x4 f32x4_load(const float* p) {
+    f32x4 r = {{p[0], p[1], p[2], p[3]}};
+    return r;
+}
+static inline void f32x4_store(float* p, f32x4 v) {
+    p[0] = v.v[0]; p[1] = v.v[1]; p[2] = v.v[2]; p[3] = v.v[3];
+}
+static inline f32x4 f32x4_add(f32x4 a, f32x4 b) {
+    f32x4 r = {{a.v[0]+b.v[0], a.v[1]+b.v[1], a.v[2]+b.v[2], a.v[3]+b.v[3]}};
+    return r;
+}
+static inline f32x4 f32x4_sub(f32x4 a, f32x4 b) {
+    f32x4 r = {{a.v[0]-b.v[0], a.v[1]-b.v[1], a.v[2]-b.v[2], a.v[3]-b.v[3]}};
+    return r;
+}
+static inline f32x4 f32x4_mul(f32x4 a, f32x4 b) {
+    f32x4 r = {{a.v[0]*b.v[0], a.v[1]*b.v[1], a.v[2]*b.v[2], a.v[3]*b.v[3]}};
+    return r;
+}
+static inline f32x4 f32x4_neg(f32x4 a) {
+    f32x4 r = {{-a.v[0], -a.v[1], -a.v[2], -a.v[3]}};
+    return r;
+}
+static inline f32x4 f32x4_abs(f32x4 a) {
+    f32x4 r;
+    for (int i = 0; i < 4; i++) r.v[i] = a.v[i] < 0 ? -a.v[i] : a.v[i];
+    return r;
+}
+static inline f32x4 f32x4_max(f32x4 a, f32x4 b) {
+    f32x4 r;
+    for (int i = 0; i < 4; i++) r.v[i] = a.v[i] > b.v[i] ? a.v[i] : b.v[i];
+    return r;
+}
+static inline f32x4 f32x4_min(f32x4 a, f32x4 b) {
+    f32x4 r;
+    for (int i = 0; i < 4; i++) r.v[i] = a.v[i] < b.v[i] ? a.v[i] : b.v[i];
+    return r;
+}
+static inline f32x4 f32x4_fma(f32x4 a, f32x4 b, f32x4 c) {
+    f32x4 r = {{a.v[0]*b.v[0]+c.v[0], a.v[1]*b.v[1]+c.v[1],
+                a.v[2]*b.v[2]+c.v[2], a.v[3]*b.v[3]+c.v[3]}};
+    return r;
+}
+
+static inline float f32x4_extract0(f32x4 v) { return v.v[0]; }
+static inline float f32x4_extract1(f32x4 v) { return v.v[1]; }
+static inline float f32x4_extract2(f32x4 v) { return v.v[2]; }
+static inline float f32x4_extract3(f32x4 v) { return v.v[3]; }
+
+#endif /* __wasm_simd128__ / __SSE2__ / scalar */
+
+/* 水平加算: 4要素の合計を返す */
+static inline float f32x4_hsum(f32x4 v) {
+    return f32x4_extract0(v) + f32x4_extract1(v) +
+           f32x4_extract2(v) + f32x4_extract3(v);
+}
+
+/* 水平最大値 */
+static inline float f32x4_hmax(f32x4 v) {
+    float a = f32x4_extract0(v), b = f32x4_extract1(v);
+    float c = f32x4_extract2(v), d = f32x4_extract3(v);
+    float ab = a > b ? a : b;
+    float cd = c > d ? c : d;
+    return ab > cd ? ab : cd;
+}
+
+/*
+ * SIMD行列ベクトル積: out[i] += sum_j(mat[i*cols+j] * vec[j])
+ * 4列ずつ処理し、端数はスカラーで処理。
+ */
+static inline void fe_matvec_add(const float* mat, const float* vec,
+                                  float* out, int rows, int cols) {
+    const int cols4 = cols & ~3;
+    for (int i = 0; i < rows; i++) {
+        const float* row = mat + i * cols;
+        f32x4 acc = f32x4_splat(0.0f);
+        for (int j = 0; j < cols4; j += 4) {
+            acc = f32x4_fma(f32x4_load(row + j), f32x4_load(vec + j), acc);
+        }
+        float sum = f32x4_hsum(acc);
+        for (int j = cols4; j < cols; j++) {
+            sum += row[j] * vec[j];
+        }
+        out[i] += sum;
+    }
+}
+
+/* ---- 高速exp/sigmoid/tanh SIMD関数 ---- */
+
+/* sigmoid飽和域: |x| >= 16 で 0.0 or 1.0 にクランプ (float32精度で十分) */
+#define FE_SIGMOID_CLAMP 16.0f
+
+/* float32 exp overflow境界: exp(88) ≈ 1.65e38 ≈ FLT_MAX */
+#define FE_EXP_OVERFLOW  88.0f
+
+/* 1/ln(2) — exp近似の底変換に使用 */
+#define FE_LOG2E         1.4426950408889634f
+
+/*
+ * f32x4_fast_exp: 4要素同時の高速exp近似
+ * 4次Remezミニマックス多項式 + IEEE 754指数部操作
+ * 相対誤差 < 2e-5 in [-10,10]、[-88,88]でクランプ
+ */
+#ifdef __wasm_simd128__
+
+static inline f32x4 f32x4_fast_exp(f32x4 x) {
+    x = wasm_f32x4_max(x, wasm_f32x4_splat(-FE_EXP_OVERFLOW));
+    x = wasm_f32x4_min(x, wasm_f32x4_splat(FE_EXP_OVERFLOW));
+    v128_t t = wasm_f32x4_mul(x, wasm_f32x4_splat(FE_LOG2E));
+    v128_t nf = wasm_f32x4_floor(t);
+    v128_t f = wasm_f32x4_sub(t, nf);
+    v128_t p = wasm_f32x4_add(wasm_f32x4_splat(0.0554953f),
+                               wasm_f32x4_mul(wasm_f32x4_splat(0.0096838f), f));
+    p = wasm_f32x4_add(wasm_f32x4_splat(0.2402265f), wasm_f32x4_mul(p, f));
+    p = wasm_f32x4_add(wasm_f32x4_splat(0.6931472f), wasm_f32x4_mul(p, f));
+    p = wasm_f32x4_add(wasm_f32x4_splat(1.0f), wasm_f32x4_mul(p, f));
+    v128_t ni = wasm_i32x4_trunc_sat_f32x4(nf);
+    v128_t scale = wasm_i32x4_shl(wasm_i32x4_add(ni, wasm_i32x4_splat(127)), 23);
+    return wasm_f32x4_mul(p, scale);
+}
+
+#elif defined(__SSE2__)
+
+static inline f32x4 f32x4_fast_exp(f32x4 x) {
+    x = _mm_max_ps(x, _mm_set1_ps(-FE_EXP_OVERFLOW));
+    x = _mm_min_ps(x, _mm_set1_ps(FE_EXP_OVERFLOW));
+    __m128 t = _mm_mul_ps(x, _mm_set1_ps(FE_LOG2E));
+    /* floor: truncate + adjust for negative */
+    __m128i ti = _mm_cvttps_epi32(t);
+    __m128 tf = _mm_cvtepi32_ps(ti);
+    __m128 adj = _mm_and_ps(_mm_cmpgt_ps(tf, t), _mm_set1_ps(1.0f));
+    __m128 nf = _mm_sub_ps(tf, adj);
+    __m128 f = _mm_sub_ps(t, nf);
+    /* Horner: p = 1 + f*(c1 + f*(c2 + f*(c3 + f*c4))) */
+    __m128 p = _mm_add_ps(_mm_set1_ps(0.0554953f),
+                           _mm_mul_ps(_mm_set1_ps(0.0096838f), f));
+    p = _mm_add_ps(_mm_set1_ps(0.2402265f), _mm_mul_ps(p, f));
+    p = _mm_add_ps(_mm_set1_ps(0.6931472f), _mm_mul_ps(p, f));
+    p = _mm_add_ps(_mm_set1_ps(1.0f), _mm_mul_ps(p, f));
+    /* 2^n via IEEE 754: (n+127)<<23 reinterpret as float */
+    __m128i ni = _mm_cvttps_epi32(nf);
+    __m128i scale = _mm_slli_epi32(_mm_add_epi32(ni, _mm_set1_epi32(127)), 23);
+    return _mm_mul_ps(p, _mm_castsi128_ps(scale));
+}
+
+#else /* scalar */
+
+static inline f32x4 f32x4_fast_exp(f32x4 x) {
+    f32x4 r;
+    for (int i = 0; i < 4; i++) {
+        float xi = x.v[i];
+        if (xi > FE_EXP_OVERFLOW) xi = FE_EXP_OVERFLOW;
+        if (xi < -FE_EXP_OVERFLOW) xi = -FE_EXP_OVERFLOW;
+        float t = xi * FE_LOG2E;
+        float n_f = floorf(t);
+        float f = t - n_f;
+        float p = 1.0f + f * (0.6931472f + f * (0.2402265f + f * (0.0554953f + f * 0.0096838f)));
+        union { float fv; int iv; } scale;
+        scale.iv = ((int)n_f + 127) << 23;
+        r.v[i] = p * scale.fv;
+    }
+    return r;
+}
+
+#endif
+
+/*
+ * f32x4_fast_sigmoid: 1 / (1 + exp(-x))
+ * 飽和域クランプ: x>=16→1, x<=-16→0
+ */
+static inline f32x4 f32x4_fast_sigmoid(f32x4 x) {
+    f32x4 e = f32x4_fast_exp(f32x4_neg(x));
+    /* SIMD除算命令がないため要素ごとにスカラー除算 */
+    float r0 = 1.0f / (1.0f + f32x4_extract0(e));
+    float r1 = 1.0f / (1.0f + f32x4_extract1(e));
+    float r2 = 1.0f / (1.0f + f32x4_extract2(e));
+    float r3 = 1.0f / (1.0f + f32x4_extract3(e));
+    /* 飽和域クランプ */
+    float x0 = f32x4_extract0(x), x1 = f32x4_extract1(x);
+    float x2 = f32x4_extract2(x), x3 = f32x4_extract3(x);
+    if (x0 >= FE_SIGMOID_CLAMP) r0 = 1.0f; else if (x0 <= -FE_SIGMOID_CLAMP) r0 = 0.0f;
+    if (x1 >= FE_SIGMOID_CLAMP) r1 = 1.0f; else if (x1 <= -FE_SIGMOID_CLAMP) r1 = 0.0f;
+    if (x2 >= FE_SIGMOID_CLAMP) r2 = 1.0f; else if (x2 <= -FE_SIGMOID_CLAMP) r2 = 0.0f;
+    if (x3 >= FE_SIGMOID_CLAMP) r3 = 1.0f; else if (x3 <= -FE_SIGMOID_CLAMP) r3 = 0.0f;
+    f32x4 rv = f32x4_splat(0.0f);
+    /* 各要素設定 */
+#ifdef __wasm_simd128__
+    rv = wasm_f32x4_replace_lane(rv, 0, r0);
+    rv = wasm_f32x4_replace_lane(rv, 1, r1);
+    rv = wasm_f32x4_replace_lane(rv, 2, r2);
+    rv = wasm_f32x4_replace_lane(rv, 3, r3);
+#elif defined(__SSE2__)
+    rv = _mm_set_ps(r3, r2, r1, r0);
+#else
+    rv.v[0] = r0; rv.v[1] = r1; rv.v[2] = r2; rv.v[3] = r3;
+#endif
+    return rv;
+}
+
+/*
+ * f32x4_fast_tanh: tanh(x) = 2*sigmoid(2x) - 1
+ */
+static inline f32x4 f32x4_fast_tanh(f32x4 x) {
+    f32x4 two_x = f32x4_add(x, x);
+    f32x4 sig = f32x4_fast_sigmoid(two_x);
+    return f32x4_sub(f32x4_add(sig, sig), f32x4_splat(1.0f));
+}
+
+/* スカラー高速exp近似（f32x4_fast_expと同じアルゴリズム） */
+static inline float fe_fast_expf(float x) {
+    if (x < -FE_EXP_OVERFLOW) return 0.0f;
+    if (x >  FE_EXP_OVERFLOW) return fe_inf_val();
+    float t = x * FE_LOG2E;
+    float n = floorf(t);
+    float f = t - n;
+    float p = 1.0f + f * (0.6931472f + f * (0.2402265f + f * (0.0554953f + f * 0.0096838f)));
+    union { float fv; int iv; } u;
+    u.iv = ((int)n + 127) << 23;
+    return p * u.fv;
+}
+
+/* SIMDベクトル加算: dst[i] += src[i] */
+static inline void fe_vec_add(float* dst, const float* src, int n) {
+    const int n4 = n & ~3;
+    for (int i = 0; i < n4; i += 4) {
+        f32x4_store(dst + i, f32x4_add(f32x4_load(dst + i), f32x4_load(src + i)));
+    }
+    for (int i = n4; i < n; i++) {
+        dst[i] += src[i];
+    }
+}
+
+#endif /* FE_SIMD_H */

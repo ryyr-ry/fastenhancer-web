@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>Phase 5: AudioWorklet WASM Integration Test</title>
+</head>
+<body>
+  <h1>AudioWorklet WASM Noise Removal Test</h1>
+  <button id="startBtn">Start Test</button>
+  <pre id="log"></pre>
+
+  <script type="module">
+    const logEl = document.getElementById('log');
+    const btn = document.getElementById('startBtn');
+
+    function appendLog(msg) {
+      logEl.textContent += msg + '\n';
+      console.log(msg);
+    }
+
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        appendLog('[1] Fetching WASM binary...');
+        const wasmResp = await fetch('/dist/wasm/fastenhancer-tiny-simd.wasm');
+        if (!wasmResp.ok) throw new Error('Failed to fetch .wasm: ' + wasmResp.status);
+        const wasmBytes = await wasmResp.arrayBuffer();
+        appendLog(`[1] WASM loaded: ${wasmBytes.byteLength} bytes`);
+
+        const magic = new Uint8Array(wasmBytes, 0, 4);
+        if (magic[0] !== 0x00 || magic[1] !== 0x61 || magic[2] !== 0x73 || magic[3] !== 0x6D) {
+          throw new Error('Invalid WASM magic header');
+        }
+
+        appendLog('[2] Fetching export map...');
+        const mapResp = await fetch('/dist/wasm/fastenhancer-tiny-simd-exports.json');
+        if (!mapResp.ok) throw new Error('Failed to fetch export map: ' + mapResp.status);
+        const exportMap = await mapResp.json();
+        appendLog(`[2] Export map loaded: ${Object.keys(exportMap).length} entries`);
+
+        appendLog('[3] Fetching weight binary...');
+        const weightResp = await fetch('/weights/fe_tiny_48k.bin');
+        if (!weightResp.ok) throw new Error('Failed to fetch weights: ' + weightResp.status);
+        const weightBytes = await weightResp.arrayBuffer();
+        appendLog(`[3] Weights loaded: ${weightBytes.byteLength} bytes`);
+
+        appendLog('[4] Creating AudioContext (48kHz)...');
+        const ctx = new AudioContext({ sampleRate: 48000 });
+        if (ctx.state === 'suspended') await ctx.resume();
+        appendLog(`[4] AudioContext: sampleRate=${ctx.sampleRate}, state=${ctx.state}`);
+
+        appendLog('[5] Registering AudioWorklet module...');
+        await ctx.audioWorklet.addModule('/dist/worklet/processor.js');
+        appendLog('[5] AudioWorklet registered');
+
+        appendLog('[6] Creating AudioWorkletNode...');
+        const node = new AudioWorkletNode(ctx, 'fastenhancer-processor');
+
+        const initResult = await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error('Timeout: no init response')), 15000);
+          node.port.onmessage = (e) => {
+            if (e.data.type === 'ready' || e.data.type === 'error') {
+              clearTimeout(timeout);
+              resolve(e.data);
+            }
+          };
+          const wasmCopy = wasmBytes.slice(0);
+          const weightCopy = weightBytes.slice(0);
+          node.port.postMessage(
+            { type: 'init', wasmBytes: wasmCopy, weightBytes: weightCopy, exportMap, modelSize: 0 },
+            [wasmCopy, weightCopy]
+          );
+        });
+
+        if (initResult.type === 'error') {
+          throw new Error('Worklet init failed: ' + initResult.message);
+        }
+
+        appendLog(`[6] Worklet initialized: hopSize=${initResult.hopSize}`);
+
+        appendLog('[7] Generating test signal (white noise, 1 second)...');
+        const duration = 1.0;
+        const numSamples = Math.floor(48000 * duration);
+        const extraSamples = 48000;
+        const totalSamples = numSamples + extraSamples;
+
+        appendLog('[8] Creating OfflineAudioContext for guaranteed rendering...');
+        const offlineCtx = new OfflineAudioContext(1, totalSamples, 48000);
+        await offlineCtx.audioWorklet.addModule('/dist/worklet/processor.js');
+        const offlineNode = new AudioWorkletNode(offlineCtx, 'fastenhancer-processor');
+
+        const offlineInit = await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error('Timeout: no init response')), 15000);
+          offlineNode.port.onmessage = (e) => {
+            if (e.data.type === 'ready' || e.data.type === 'error') {
+              clearTimeout(timeout);
+              resolve(e.data);
+            }
+          };
+          const wc2 = wasmBytes.slice(0);
+          const wgc2 = weightBytes.slice(0);
+          offlineNode.port.postMessage(
+            { type: 'init', wasmBytes: wc2, weightBytes: wgc2, exportMap, modelSize: 0 },
+            [wc2, wgc2]
+          );
+        });
+
+        if (offlineInit.type === 'error') throw new Error('Offline worklet init failed: ' + offlineInit.message);
+        appendLog(`[8] Offline worklet initialized: hopSize=${offlineInit.hopSize}`);
+
+        const noiseBuffer = new AudioBuffer({ numberOfChannels: 1, length: numSamples, sampleRate: 48000 });
+        const noiseData = noiseBuffer.getChannelData(0);
+        let seed = 42;
+        for (let i = 0; i < numSamples; i++) {
+          seed = (seed * 1664525 + 1013904223) & 0xFFFFFFFF;
+          noiseData[i] = ((seed >>> 0) / 0xFFFFFFFF) * 2.0 - 1.0;
+        }
+        appendLog(`[8] Noise buffer: ${numSamples} samples, rms=${rms(noiseData).toFixed(4)}`);
+
+        appendLog('[9] Rendering offline...');
+        let processErrors = [];
+        offlineNode.port.onmessage = (e) => {
+          if (e.data.type === 'process_error') {
+            processErrors.push(e.data.message);
+          }
+        };
+        const source = offlineCtx.createBufferSource();
+        source.buffer = noiseBuffer;
+        source.connect(offlineNode);
+        offlineNode.connect(offlineCtx.destination);
+        source.start();
+
+        const rendered = await offlineCtx.startRendering();
+        const outputData = rendered.getChannelData(0);
+        appendLog(`[9] Rendered ${outputData.length} samples`);
+        if (processErrors.length > 0) {
+          appendLog(`[9] Process errors: ${processErrors.join(', ')}`);
+        }
+
+        appendLog('[10] Requesting output info from worklet...');
+        const outputInfo = await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error('get_output_info timed out after 10s')), 10000);
+          offlineNode.port.onmessage = (e) => {
+            if (e.data.type === 'output_info') {
+              clearTimeout(timeout);
+              resolve(e.data);
+            }
+          };
+          offlineNode.port.postMessage({ type: 'get_output_info' });
+        });
+
+        appendLog(`[10] Frames processed: ${outputInfo.frameCount}`);
+        appendLog(`[10] Output RMS (worklet internal): ${outputInfo.rms.toFixed(6)}`);
+        appendLog(`[10] Non-zero ratio: ${(outputInfo.nonZeroRatio * 100).toFixed(1)}%`);
+        appendLog(`[10] Total samples: ${outputInfo.totalSamples}`);
+        appendLog(`[10] Has NaN: ${outputInfo.hasNaN}`);
+        appendLog(`[10] Has Inf: ${outputInfo.hasInf}`);
+
+        const skipSamples = 512 * 4;
+        const relevant = outputData.subarray(skipSamples);
+        const renderedRms = rms(relevant);
+        let nonZeroCount = 0;
+        for (let i = 0; i < relevant.length; i++) {
+          if (Math.abs(relevant[i]) > 1e-8) nonZeroCount++;
+        }
+        const renderedNonZeroRatio = nonZeroCount / relevant.length;
+        appendLog(`[10] Rendered RMS (after warmup): ${renderedRms.toFixed(6)}`);
+        appendLog(`[10] Rendered non-zero ratio: ${(renderedNonZeroRatio * 100).toFixed(1)}%`);
+
+        const checks = {
+          initSuccess: offlineInit.type === 'ready',
+          hopSizeCorrect: offlineInit.hopSize === 512,
+          hasProcessedFrames: outputInfo.frameCount > 0,
+          hasOutput: renderedNonZeroRatio > 0.1 || outputInfo.nonZeroRatio > 0.1,
+          noNaN: !outputInfo.hasNaN && !hasNaN(relevant),
+          noInf: !outputInfo.hasInf && !hasInf(relevant),
+          rmsReasonable: renderedRms >= 0 && renderedRms < 10.0,
+        };
+
+        appendLog('[10] Test results:');
+        let allPassed = true;
+        for (const [name, passed] of Object.entries(checks)) {
+          const status = passed ? 'OK' : 'FAIL';
+          if (!passed) allPassed = false;
+          appendLog(`  ${status}: ${name}`);
+        }
+
+        if (allPassed) {
+          appendLog('[PASS] AudioWorklet WASM integration test passed!');
+        } else {
+          appendLog('[FAIL] Some checks failed.');
+        }
+
+        node.port.postMessage({ type: 'destroy' });
+        offlineNode.port.postMessage({ type: 'destroy' });
+        await ctx.close();
+        appendLog('[11] Cleanup complete.');
+
+      } catch (err) {
+        appendLog(`[FAIL] Error: ${err.message}`);
+        console.error(err);
+      }
+    });
+
+    function rms(arr) {
+      let sum = 0;
+      for (let i = 0; i < arr.length; i++) sum += arr[i] * arr[i];
+      return Math.sqrt(sum / arr.length);
+    }
+
+    function hasNaN(arr) {
+      for (let i = 0; i < arr.length; i++) if (isNaN(arr[i])) return true;
+      return false;
+    }
+
+    function hasInf(arr) {
+      for (let i = 0; i < arr.length; i++) if (!isFinite(arr[i])) return true;
+      return false;
+    }
+  </script>
+</body>
+</html>

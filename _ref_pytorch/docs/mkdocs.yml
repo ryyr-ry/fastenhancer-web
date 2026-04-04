@@ -1,0 +1,27 @@
+site_name: FastEnhancer
+theme:
+    name: material
+    features:
+        - navigation.indexes
+        - content.code.copy
+nav:
+    - Home: index.md
+    - Installation:
+        - installation/index.md
+        - Installation for Training: installation/training.md
+    - Dataset:
+        - dataset/index.md
+        - Voicebank-Demand: dataset/voicebank-demand.md
+        - DNS-Challenge: dataset/dns-challenge.md
+    - Training:
+        - train/index.md
+        - FastEnhancer: train/fastenhancer.md
+        - BSRNN: train/bsrnn.md
+        - FSPEN: train/fspen.md
+        - LiSenNet: train/lisennet.md
+    - Objective Metrics:
+        - metrics.md
+    - PyTorch Inference:
+        - pytorch.md
+    - ONNX:
+        - onnx.md

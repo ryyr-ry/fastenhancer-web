@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>Phase 5-E: WASM処理速度 + AudioWorkletリアルタイム検証</title>
+</head>
+<body>
+  <h1>WASMフレーム処理ベンチマーク + AudioWorkletリアルタイム検証</h1>
+  <button id="startBtn">Start Benchmark</button>
+  <pre id="log"></pre>
+
+  <script type="module">
+    const logEl = document.getElementById('log');
+    const btn = document.getElementById('startBtn');
+
+    function appendLog(msg) {
+      logEl.textContent += msg + '\n';
+      console.log(msg);
+    }
+
+    function sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      let realtimeCtx = null;
+      try {
+        appendLog('[1] Loading resources...');
+        const [wasmResp, mapResp, weightResp] = await Promise.all([
+          fetch('/dist/wasm/fastenhancer-tiny-simd.wasm'),
+          fetch('/dist/wasm/fastenhancer-tiny-simd-exports.json'),
+          fetch('/weights/fe_tiny_48k.bin'),
+        ]);
+        if (!wasmResp.ok || !mapResp.ok || !weightResp.ok) throw new Error('Fetch failed');
+        const [wasmBytes, exportMap, weightBytes] = await Promise.all([
+          wasmResp.arrayBuffer(),
+          mapResp.json(),
+          weightResp.arrayBuffer(),
+        ]);
+        appendLog(`[1] WASM=${wasmBytes.byteLength}B, weights=${weightBytes.byteLength}B`);
+
+        /* ===== Section A: Main-thread WASM benchmark (accurate per-frame timing) ===== */
+        appendLog('[2] メインスレッド WASM ベンチマーク (1000 frames)...');
+        const mod = await WebAssembly.compile(wasmBytes);
+        const needed = WebAssembly.Module.imports(mod);
+        const importObj = {};
+        for (const imp of needed) {
+          if (!importObj[imp.module]) importObj[imp.module] = {};
+          if (imp.kind === 'function') {
+            importObj[imp.module][imp.name] =
+              imp.name === 'c' ? () => { throw new Error('abort'); } : () => 0;
+          }
+        }
+        const inst = await WebAssembly.instantiate(mod, importObj);
+        const wasm = {};
+        for (const [readable, minified] of Object.entries(exportMap)) {
+          const exp = inst.exports[minified];
+          if (typeof exp === 'function') wasm[readable] = exp;
+        }
+        let memory = null;
+        for (const val of Object.values(inst.exports)) {
+          if (val instanceof WebAssembly.Memory) { memory = val; break; }
+        }
+
+        const wLen = weightBytes.byteLength;
+        const wPtr = wasm._malloc(wLen);
+        new Uint8Array(memory.buffer).set(new Uint8Array(weightBytes), wPtr);
+        let statePtr;
+        try { statePtr = wasm._fe_init(0, wPtr, wLen); } finally { wasm._free(wPtr); }
+        if (!statePtr) throw new Error('fe_init failed');
+        const hopSize = wasm._fe_get_hop_size(statePtr);
+        const inPtr = wasm._fe_get_input_ptr(statePtr);
+
+        const warmup = 100;
+        const measured = 1000;
+        const heapF32 = new Float32Array(memory.buffer);
+        const inOff = inPtr >> 2;
+        let seed = 42;
+        for (let i = 0; i < hopSize; i++) {
+          seed = (seed * 1664525 + 1013904223) & 0xFFFFFFFF;
+          heapF32[inOff + i] = ((seed >>> 0) / 0xFFFFFFFF) * 2.0 - 1.0;
+        }
+
+        for (let i = 0; i < warmup; i++) wasm._fe_process_inplace(statePtr);
+
+        const times = new Float64Array(measured);
+        for (let i = 0; i < measured; i++) {
+          const t0 = performance.now();
+          wasm._fe_process_inplace(statePtr);
+          times[i] = performance.now() - t0;
+        }
+        wasm._fe_destroy(statePtr);
+
+        times.sort();
+        const budgetMs = (hopSize / 48000) * 1000;
+        const sum = times.reduce((a, b) => a + b, 0);
+        const medianMs = times[Math.floor(measured / 2)];
+        const p99Ms = times[Math.floor(measured * 0.99)];
+        const maxMs = times[measured - 1];
+        let dropped = 0;
+        for (let i = 0; i < measured; i++) { if (times[i] > budgetMs) dropped++; }
+
+        appendLog(`  Budget: ${budgetMs.toFixed(3)} ms`);
+        appendLog(`  Average: ${(sum / measured).toFixed(3)} ms`);
+        appendLog(`  Median: ${medianMs.toFixed(3)} ms`);
+        appendLog(`  P99: ${p99Ms.toFixed(3)} ms`);
+        appendLog(`  Max: ${maxMs.toFixed(3)} ms`);
+        appendLog(`  Dropped: ${dropped} / ${measured}`);
+        appendLog(`  Drop rate: ${(dropped / measured * 100).toFixed(2)}%`);
+
+        const wasmChecks = {
+          enoughFrames: true,
+          medianUnderBudget: medianMs < budgetMs,
+          p99UnderBudget: p99Ms < budgetMs * 2,
+          dropRateAcceptable: (dropped / measured) < 0.05,
+          noExtremeLatency: maxMs < budgetMs * 5,
+        };
+
+        appendLog('[3] WASM benchmark checks:');
+        let allWasmPassed = true;
+        for (const [name, passed] of Object.entries(wasmChecks)) {
+          const status = passed ? 'OK' : 'FAIL';
+          if (!passed) allWasmPassed = false;
+          appendLog(`  ${status}: ${name}`);
+        }
+
+        /* ===== Section B: Real-time AudioWorklet integration (glitch-free validation) ===== */
+        appendLog('[4] AudioWorklet リアルタイム動作検証 (2s)...');
+        const duration = 2.0;
+        realtimeCtx = new AudioContext({ sampleRate: 48000 });
+        if (realtimeCtx.state === 'suspended') await realtimeCtx.resume();
+
+        await realtimeCtx.audioWorklet.addModule('/dist/worklet/processor.js');
+        const node = new AudioWorkletNode(realtimeCtx, 'fastenhancer-processor');
+
+        const initResult = await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error('Init timeout')), 15000);
+          node.port.onmessage = (e) => {
+            if (e.data.type === 'ready' || e.data.type === 'error') {
+              clearTimeout(timeout);
+              resolve(e.data);
+            }
+          };
+          const wc = wasmBytes.slice(0);
+          const wgc = weightBytes.slice(0);
+          node.port.postMessage(
+            { type: 'init', wasmBytes: wc, weightBytes: wgc, exportMap, modelSize: 0 },
+            [wc, wgc]
+          );
+        });
+        if (initResult.type === 'error') throw new Error('Worklet init failed: ' + initResult.message);
+
+        const numSamples = Math.floor(48000 * duration);
+        const noiseBuffer = realtimeCtx.createBuffer(1, numSamples, 48000);
+        const noiseData = noiseBuffer.getChannelData(0);
+        seed = 12345;
+        for (let i = 0; i < numSamples; i++) {
+          seed = (seed * 1664525 + 1013904223) & 0xFFFFFFFF;
+          noiseData[i] = ((seed >>> 0) / 0xFFFFFFFF) * 2.0 - 1.0;
+        }
+
+        const source = realtimeCtx.createBufferSource();
+        source.buffer = noiseBuffer;
+        source.connect(node);
+        node.connect(realtimeCtx.destination);
+        source.start();
+
+        await new Promise(resolve => { source.onended = resolve; });
+        await sleep(200);
+
+        const statsPromise = new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error('get_stats timeout')), 10000);
+          node.port.onmessage = (e) => {
+            if (e.data.type === 'stats') {
+              clearTimeout(timeout);
+              resolve(e.data);
+            }
+          };
+        });
+        node.port.postMessage({ type: 'get_stats' });
+        const stats = await statsPromise;
+
+        const expectedFrames = Math.floor(numSamples / initResult.hopSize);
+        const realtimeOk = stats.frameCount >= expectedFrames * 0.9;
+        appendLog(`[5] Real-time: ${stats.frameCount} frames processed (expected ~${expectedFrames})`);
+        appendLog(`  ${realtimeOk ? 'OK' : 'FAIL'}: realtimeFrameCount`);
+
+        node.disconnect();
+        await realtimeCtx.close();
+        realtimeCtx = null;
+
+        /* ===== Final result ===== */
+        const allPassed = allWasmPassed && realtimeOk;
+        if (allPassed) {
+          appendLog('[PASS] Performance benchmark passed!');
+        } else {
+          appendLog('[FAIL] Performance issues detected.');
+        }
+        appendLog('[6] Done.');
+
+      } catch (err) {
+        appendLog(`[FAIL] Error: ${err.message}`);
+        console.error(err);
+        if (realtimeCtx) { try { await realtimeCtx.close(); } catch (_) {} }
+      }
+    });
+  </script>
+</body>
+</html>

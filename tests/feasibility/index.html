@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>Phase 1: WASM + AudioWorklet Feasibility Gate</title>
+</head>
+<body>
+  <h1>WASM AudioWorklet Feasibility Test</h1>
+  <button id="startBtn">Start Test</button>
+  <pre id="log"></pre>
+
+  <script type="module">
+    const log = document.getElementById('log');
+    const btn = document.getElementById('startBtn');
+
+    function appendLog(msg) {
+      log.textContent += msg + '\n';
+      console.log(msg);
+    }
+
+    function binaryDecode(bin) {
+      const o = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; ++i) {
+        const c = bin.charCodeAt(i);
+        o[i] = ~c >> 8 & c;
+      }
+      return o;
+    }
+
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        appendLog('[1] Creating AudioContext (48kHz)...');
+        const ctx = new AudioContext({ sampleRate: 48000 });
+        appendLog(`[1] AudioContext created: sampleRate=${ctx.sampleRate}, state=${ctx.state}`);
+
+        if (ctx.state === 'suspended') {
+          await ctx.resume();
+          appendLog('[1] AudioContext resumed');
+        }
+
+        appendLog('[2] Loading WASM binary...');
+        const wasmResp = await fetch('/tests/feasibility/add_two_separate.wasm');
+        const wasmBytesOriginal = await wasmResp.arrayBuffer();
+        appendLog(`[2] WASM binary loaded: ${wasmBytesOriginal.byteLength} bytes`);
+
+        const view = new Uint8Array(wasmBytesOriginal);
+        const wasmMagic = view[0] === 0x00 && view[1] === 0x61 &&
+                          view[2] === 0x73 && view[3] === 0x6D;
+        appendLog(`[2] WASM magic header valid: ${wasmMagic}`);
+        if (!wasmMagic) throw new Error('Invalid WASM binary (bad magic header)');
+
+        appendLog('[3] Skipping main-thread compile (sending raw bytes to worklet)...');
+
+        appendLog('[4] Registering AudioWorklet...');
+        await ctx.audioWorklet.addModule('/tests/feasibility/test-worklet.js');
+        appendLog('[4] AudioWorklet registered');
+
+        appendLog('[5] Creating WorkletNode and sending Module...');
+        const node = new AudioWorkletNode(ctx, 'test-processor');
+
+        const resultPromise = new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error('Timeout: no response from worklet')), 10000);
+          let gotReady = false;
+          let gotPong = false;
+          node.port.onmessage = (e) => {
+            if (e.data.type === 'ready') {
+              gotReady = true;
+              appendLog('[5] Worklet ready, sending ping...');
+              node.port.postMessage({ type: 'ping' });
+              return;
+            }
+            if (e.data.type === 'pong') {
+              gotPong = true;
+              appendLog('[5] Pong received! Sending WASM bytes as ArrayBuffer...');
+              const wasmCopy = wasmBytesOriginal.slice(0);
+              node.port.postMessage({ type: 'init', wasmBytes: wasmCopy }, [wasmCopy]);
+              return;
+            }
+            clearTimeout(timeout);
+            resolve(e.data);
+          };
+        });
+
+        const result = await resultPromise;
+        appendLog(`[6] Worklet response: ${JSON.stringify(result)}`);
+
+        if (result.type === 'result' && result.addResult === 3 && result.mulResult === 6) {
+          appendLog('[PASS] WASM functions executed correctly inside AudioWorklet!');
+          appendLog(`  add_two(1, 2) = ${result.addResult}`);
+          appendLog(`  multiply_f32(2, 3) = ${result.mulResult}`);
+        } else {
+          appendLog('[FAIL] Unexpected result: ' + JSON.stringify(result));
+        }
+
+        node.disconnect();
+        await ctx.close();
+        appendLog('[7] AudioContext closed. Test complete.');
+
+      } catch (err) {
+        appendLog(`[FAIL] Error: ${err.message}`);
+        console.error(err);
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>loadModel → createStreamDenoiser E2Eテスト</title>
+</head>
+<body>
+  <button id="startBtn">テスト開始</button>
+  <div id="result"></div>
+  <script type="module">
+    import { loadModel } from '/dist/api/loader.js';
+
+    document.getElementById('startBtn').addEventListener('click', async () => {
+      const resultEl = document.getElementById('result');
+      const lines = [];
+      let allOk = true;
+
+      function check(name, condition) {
+        if (condition) {
+          lines.push('OK: ' + name);
+        } else {
+          lines.push('FAIL: ' + name);
+          allOk = false;
+        }
+      }
+
+      let inputCtx = null;
+      try {
+        const model = await loadModel('tiny', { baseUrl: '/flat/' });
+
+        check('modelSizeTiny', model.size === 'tiny');
+        check('sampleRate48k', model.sampleRate === 48000);
+        check('hopSize512', model.hopSize === 512);
+        check('nFft1024', model.nFft === 1024);
+        check('wasmBytesExist', model.wasmBytes instanceof ArrayBuffer && model.wasmBytes.byteLength > 0);
+        check('weightDataExist', model.weightData instanceof ArrayBuffer && model.weightData.byteLength > 0);
+        check('exportMapExist', typeof model.exportMap === 'object' && Object.keys(model.exportMap).length > 0);
+        check('wasmFactoryFn', typeof model.wasmFactory === 'function');
+        check('createDenoiserFn', typeof model.createDenoiser === 'function');
+        check('createStreamDenoiserFn', typeof model.createStreamDenoiser === 'function');
+
+        inputCtx = new AudioContext({ sampleRate: 48000 });
+        const osc = inputCtx.createOscillator();
+        osc.frequency.value = 440;
+        const dest = inputCtx.createMediaStreamDestination();
+        osc.connect(dest);
+        osc.start();
+
+        const stream = await model.createStreamDenoiser(dest.stream, {
+          workletUrl: '/dist/worklet/processor.js',
+        });
+
+        check('outputStreamExists', stream.outputStream instanceof MediaStream);
+        check('outputStreamHasTracks', stream.outputStream.getAudioTracks().length > 0);
+        check('stateRunning', stream.state === 'running');
+
+        stream.bypass = true;
+        check('bypassOn', stream.bypass === true);
+        stream.bypass = false;
+        check('bypassOff', stream.bypass === false);
+
+        stream.destroy();
+        check('stateDestroyed', stream.state === 'destroyed');
+
+        osc.stop();
+      } catch (err) {
+        lines.push('FAIL: ' + err.message);
+        allOk = false;
+      } finally {
+        if (inputCtx) inputCtx.close().catch(() => {});
+      }
+
+      lines.push(allOk
+        ? '[PASS] loadModel stream test passed!'
+        : '[FAIL] loadModel stream test failed');
+      resultEl.textContent = lines.join('\n');
+    });
+  </script>
+</body>
+</html>

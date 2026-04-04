@@ -1,0 +1,88 @@
+{
+  "name": "fastenhancer-web",
+  "version": "0.1.0",
+  "description": "Real-time voice noise removal for the web using FastEnhancer (ICASSP 2026) via C/WASM SIMD",
+  "type": "module",
+  "main": "./dist/api/index.js",
+  "module": "./dist/api/index.js",
+  "types": "./dist/api/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/api/index.d.ts",
+      "import": "./dist/api/index.js"
+    },
+    "./loader": {
+      "types": "./dist/api/loader.d.ts",
+      "import": "./dist/api/loader.js"
+    },
+    "./errors": {
+      "types": "./dist/api/errors.d.ts",
+      "import": "./dist/api/errors.js"
+    },
+    "./stream": {
+      "types": "./dist/api/stream-denoiser.d.ts",
+      "import": "./dist/api/stream-denoiser.js"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "weights",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc && node -e \"require('fs').cpSync('src/worklet/processor.js','dist/worklet/processor.js')\" && powershell -ExecutionPolicy Bypass -File ./scripts/build-wasm.ps1",
+    "build:ts": "tsc && node -e \"require('fs').cpSync('src/worklet/processor.js','dist/worklet/processor.js')\"",
+    "build:wasm": "powershell -ExecutionPolicy Bypass -File ./scripts/build-wasm.ps1",
+    "build:wasm:scalar": "powershell -ExecutionPolicy Bypass -File ./scripts/build-wasm.ps1 -Variant scalar",
+    "build:wasm:simd": "powershell -ExecutionPolicy Bypass -File ./scripts/build-wasm.ps1 -Variant simd",
+    "build:wasm:all": "powershell -ExecutionPolicy Bypass -Command \"foreach ($m in 'tiny','base','small') { foreach ($v in 'simd','scalar') { & ./scripts/build-wasm.ps1 -Model $m -Variant $v } }\"",
+    "build:wasm:worklet": "powershell -ExecutionPolicy Bypass -File ./scripts/build-wasm.ps1 -WorkletBuild",
+    "build:all": "tsc && node -e \"require('fs').cpSync('src/worklet/processor.js','dist/worklet/processor.js')\" && powershell -ExecutionPolicy Bypass -Command \"foreach ($m in 'tiny','base','small') { foreach ($v in 'simd','scalar') { & ./scripts/build-wasm.ps1 -Model $m -Variant $v } }\" && powershell -ExecutionPolicy Bypass -File ./scripts/build-wasm.ps1 -WorkletBuild",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "tsc && node -e \"require('fs').cpSync('src/worklet/processor.js','dist/worklet/processor.js')\" && powershell -ExecutionPolicy Bypass -Command \"foreach ($m in 'tiny','base','small') { foreach ($v in 'simd','scalar') { & ./scripts/build-wasm.ps1 -Model $m -Variant $v } }\" && bunx playwright test",
+    "test:e2e:only": "bunx playwright test",
+    "clean": "node -e \"const fs=require('fs');fs.rmSync('dist',{recursive:true,force:true})\""
+  },
+  "keywords": [
+    "noise-removal",
+    "denoiser",
+    "audio",
+    "wasm",
+    "simd",
+    "audioworklet",
+    "real-time",
+    "48khz",
+    "fastenhancer"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "@types/node": "^25.5.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitest/coverage-v8": "^4.1.2",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "typescript": "^6.0.2",
+    "vite": "^8.0.3",
+    "vitest": "^4.1.2"
+  }
+}

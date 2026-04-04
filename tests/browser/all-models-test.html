@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>全モデルE2Eテスト (tiny/base/small)</title>
+</head>
+<body>
+  <button id="startBtn">テスト開始</button>
+  <div id="result"></div>
+  <script type="module">
+    import { loadModel } from '/dist/api/loader.js';
+
+    const MODELS = ['tiny', 'base', 'small'];
+
+    document.getElementById('startBtn').addEventListener('click', async () => {
+      const resultEl = document.getElementById('result');
+      const lines = [];
+      let allOk = true;
+
+      function check(name, condition) {
+        if (condition) {
+          lines.push('OK: ' + name);
+        } else {
+          lines.push('FAIL: ' + name);
+          allOk = false;
+        }
+      }
+
+      for (const modelSize of MODELS) {
+        let inputCtx = null;
+        try {
+          const model = await loadModel(modelSize, { baseUrl: '/flat/' });
+
+          check(`${modelSize}_size`, model.size === modelSize);
+          check(`${modelSize}_sampleRate`, model.sampleRate === 48000);
+          check(`${modelSize}_hopSize`, model.hopSize === 512);
+          check(`${modelSize}_nFft`, model.nFft === 1024);
+          check(`${modelSize}_wasmBytes`, model.wasmBytes instanceof ArrayBuffer && model.wasmBytes.byteLength > 0);
+          check(`${modelSize}_weightData`, model.weightData instanceof ArrayBuffer && model.weightData.byteLength > 0);
+          check(`${modelSize}_exportMap`, typeof model.exportMap === 'object' && Object.keys(model.exportMap).length > 0);
+          check(`${modelSize}_wasmFactory`, typeof model.wasmFactory === 'function');
+          check(`${modelSize}_createDenoiser`, typeof model.createDenoiser === 'function');
+          check(`${modelSize}_createStreamDenoiser`, typeof model.createStreamDenoiser === 'function');
+
+          inputCtx = new AudioContext({ sampleRate: 48000 });
+          const osc = inputCtx.createOscillator();
+          osc.frequency.value = 440;
+          const dest = inputCtx.createMediaStreamDestination();
+          osc.connect(dest);
+          osc.start();
+
+          const stream = await model.createStreamDenoiser(dest.stream, {
+            workletUrl: '/dist/worklet/processor.js',
+          });
+
+          check(`${modelSize}_outputStream`, stream.outputStream instanceof MediaStream);
+          check(`${modelSize}_tracks`, stream.outputStream.getAudioTracks().length > 0);
+          check(`${modelSize}_running`, stream.state === 'running');
+
+          stream.bypass = true;
+          check(`${modelSize}_bypassOn`, stream.bypass === true);
+          stream.bypass = false;
+          check(`${modelSize}_bypassOff`, stream.bypass === false);
+
+          stream.destroy();
+          check(`${modelSize}_destroyed`, stream.state === 'destroyed');
+
+          osc.stop();
+          inputCtx.close().catch(() => {});
+          inputCtx = null;
+        } catch (err) {
+          lines.push(`FAIL: ${modelSize}_error: ${err.message}`);
+          allOk = false;
+          if (inputCtx) inputCtx.close().catch(() => {});
+        }
+      }
+
+      lines.push(allOk
+        ? '[PASS] 全モデルテスト合格'
+        : '[FAIL] 全モデルテスト失敗');
+      resultEl.textContent = lines.join('\n');
+    });
+  </script>
+</body>
+</html>

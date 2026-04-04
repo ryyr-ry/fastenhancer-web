@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>diagnose() E2Eテスト</title>
+</head>
+<body>
+  <div id="result"></div>
+  <script type="module">
+    import { diagnose } from '/dist/api/diagnose.js';
+
+    const resultEl = document.getElementById('result');
+
+    try {
+      const report = await diagnose();
+
+      const checks = [
+        ['wasm', report.wasm],
+        ['simd', report.simd],
+        ['audioContext', report.audioContext],
+        ['audioWorklet', report.audioWorklet],
+        ['overall', report.overall],
+        ['issuesEmpty', report.issues.length === 0],
+      ];
+
+      const lines = [];
+      let allOk = true;
+
+      for (const [name, value] of checks) {
+        const status = value ? 'OK' : 'FAIL';
+        if (!value) allOk = false;
+        lines.push(`${status}: ${name}`);
+      }
+
+      lines.push(allOk ? '[PASS] diagnose test passed!' : '[FAIL] diagnose test failed');
+      resultEl.textContent = lines.join('\n');
+    } catch (err) {
+      resultEl.textContent = `[FAIL] ${err.message}`;
+    }
+  </script>
+</body>
+</html>

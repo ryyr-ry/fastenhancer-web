@@ -1,0 +1,103 @@
+# ===== 依存関係 =====
+node_modules/
+package-lock.json
+
+# ===== ビルド成果物 =====
+dist/
+build/
+
+# ===== C / WASM コンパイル成果物 =====
+*.exe
+*.o
+*.obj
+*.bc
+*.a
+*.wasm
+*.wasm.map
+*.wast
+*.wat
+obj_temp/
+test_outputs/
+# feasibility テスト用の .wasm は管理対象
+!tests/feasibility/*.wasm
+
+# ===== TypeScript コンパイル成果物 =====
+*.tsbuildinfo
+*.js.map
+*.d.ts.map
+
+# ===== モデル重み・チェックポイント =====
+weights/
+*.bin
+*.weights
+*.pth
+ckpt_*/
+
+# ===== 学習アーカイブ =====
+*.zip
+
+# ===== TensorBoard イベント =====
+events.out.tfevents.*
+
+# ===== テスト結果・カバレッジ =====
+test-results/
+coverage/
+playwright-report/
+
+# ===== Python =====
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# ===== 参照実装内の大容量ファイル =====
+_ref_pytorch/onnx/*.wav
+_ref_pytorch/.git
+
+# ===== Emscripten SDK =====
+emsdk/
+
+# ===== AI / Copilot設定 =====
+.github/copilot-instructions.md
+AGENTS.md
+
+# ===== IDE・エディタ =====
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# ===== npm / bun =====
+*.tgz
+.npmrc
+
+# ===== 環境変数 =====
+.env
+.env.local
+.env.*.local
+
+# ===== ログ =====
+*.log
+npm-debug.log*
+
+# ===== Vite =====
+.vite/
+
+# ===== デモサイトビルド =====
+demo/dist/
+
+# ===== 一時ファイル =====
+gcc_*.txt
+wait_*.ps1
+wait_*.py
+wait_*.txt
+fast_expf_test.c

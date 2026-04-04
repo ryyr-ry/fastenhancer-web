@@ -1,0 +1,315 @@
+# fastenhancer-web
+
+ブラウザ上でリアルタイムに通話音声のノイズを除去するためのライブラリです。[FastEnhancer](https://github.com/aask1357/fastenhancer)（ICASSP 2026）を中核に据え、推論処理を C で実装し、WebAssembly SIMD として配布しています。利用側からは整理された TypeScript API として扱えます。
+
+> **English documentation: [README.md](./README.md)**
+
+---
+
+## なぜ fastenhancer-web か
+
+ブラウザ向けのノイズ除去は、汎用の推論ランタイムに依存する構成になりがちです。たとえば ONNX Runtime Web v1.24.3 の標準 WASM ファイル（`ort-wasm-simd-threaded.wasm`）は、それ単体で **11.79 MB** あります。これは jsdelivr CDN 上で確認した実測値です。ここに JavaScript のグルーコードやモデル重みまで加わると、初回ロードはすぐに数 MB 規模になります。**fastenhancer-web はニューラルネットワーク推論そのものを C で実装しているため、追加のランタイムを不要にし、配布サイズを最小限に抑えられます。**
+
+| モデル | パラメータ数 | WASM + 重み (gzip) | 処理時間 (SIMD) | 予算使用率 |
+|-------|-----------|----------------------|----------------------|-------------------|
+| **Tiny** | 28K | **128 KB** | 0.51 ms | 4.8% |
+| **Base** | 101K | **395 KB** | 1.71 ms | 16% |
+| **Small** | 207K | **783 KB** | 3.84 ms | 36% |
+
+- 48 kHz ネイティブ処理 — リサンプリング由来の劣化なし
+- relaxed-simd FMA を使った WASM SIMD 高速化
+- 実行時 `malloc` ゼロ — 必要メモリの初期化時一括確保
+- SharedArrayBuffer / COOP / COEP ヘッダー不要
+- CSP 対応（`unsafe-eval` 不要）
+
+---
+
+## インストール
+
+```bash
+npm install fastenhancer-web
+```
+
+---
+
+## クイックスタート
+
+### Layer 3: React Hook（1 行）
+
+```tsx
+import { useDenoiser } from 'fastenhancer-web/react';
+
+function CallScreen() {
+  const { outputStream, start, stop, state } = useDenoiser('small');
+
+  const handleStart = async () => {
+    const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
+    await start(mic);
+  };
+
+  return (
+    <div>
+      <button onClick={handleStart} disabled={state === 'processing'}>
+        ノイズ除去開始
+      </button>
+      <button onClick={stop} disabled={state !== 'processing'}>
+        停止
+      </button>
+      {outputStream && <audio autoPlay ref={el => {
+        if (el) el.srcObject = outputStream;
+      }} />}
+    </div>
+  );
+}
+```
+
+### Layer 2: Vanilla JavaScript（3 行）
+
+```typescript
+import { loadModel } from 'fastenhancer-web';
+
+const model = await loadModel('small');
+const denoiser = await model.createStreamDenoiser(micStream);
+const cleanStream = denoiser.outputStream;
+// ...
+denoiser.destroy();
+```
+
+### Layer 1: フレーム単位処理
+
+```typescript
+import { loadModel } from 'fastenhancer-web';
+
+const model = await loadModel('small');
+const denoiser = await model.createDenoiser();
+// Process raw Float32Array frames (512 samples at 48 kHz)
+const output = denoiser.processFrame(inputFloat32Array);
+denoiser.destroy();
+```
+
+---
+
+## API リファレンス
+
+### `useDenoiser(modelSize, options?)` — React Hook
+
+```typescript
+import { useDenoiser } from 'fastenhancer-web/react';
+
+const {
+  state,          // 'idle' | 'loading' | 'processing' | 'error' | 'destroyed'
+  error,          // Error | null
+  outputStream,   // MediaStream | null
+  bypass,         // boolean
+  start,          // (inputStream: MediaStream) => Promise<void>
+  stop,           // () => void
+  setBypass,      // (enabled: boolean) => void
+  destroy,        // () => void
+} = useDenoiser('small');
+```
+
+| パラメータ | 型 | 説明 |
+|-----------|------|-------------|
+| `modelSize` | `'tiny' \| 'base' \| 'small'` | 使用するモデルサイズ（デフォルト: `'small'`） |
+| `options.baseUrl` | `string` | WASM/重みファイルのベース URL |
+| `options.simd` | `boolean` | SIMD の有効/無効を明示指定（デフォルトは自動検出） |
+| `options.workletUrl` | `string` | カスタム AudioWorklet processor の URL |
+| `options.onWarning` | `(msg: string) => void` | 警告コールバック |
+| `options.onError` | `(err: Error) => void` | エラーコールバック |
+
+**主な特性:**
+- アンマウント時の自動クリーンアップ
+- React 18+ の Strict Mode での安全な利用（二重 mount / unmount への耐性）
+- race condition への強さと古い `start()` 結果の自動破棄
+
+### `createDenoiser(options)` — フレーム単位処理 API
+
+```typescript
+import { createDenoiser } from 'fastenhancer-web';
+```
+
+### `createStreamDenoiser(options)` — AudioWorklet 統合
+
+```typescript
+import { createStreamDenoiser } from 'fastenhancer-web';
+```
+
+### `diagnose()` — ブラウザ互換性チェック
+
+```typescript
+import { diagnose } from 'fastenhancer-web';
+
+const result = await diagnose();
+// { wasm: true, simd: true, audioContext: true, audioWorklet: true, overall: true, issues: [] }
+```
+
+### `getModels()` / `recommendModel(priority)` — モデル選択
+
+```typescript
+import { getModels, recommendModel } from 'fastenhancer-web';
+
+const models = getModels();
+// [{ id: 'tiny', ... }, { id: 'base', ... }, { id: 'small', ... }]
+
+const recommended = recommendModel();
+// { id: 'small', reason: '最高品質のノイズ除去。多くの環境で推奨。' }
+```
+
+### エラークラス
+
+すべてのエラーは `FastEnhancerError` を継承しており、機械可読な `code` プロパティを持ちます。
+
+| クラス | コード | 発生条件 |
+|-------|------|------|
+| `WasmLoadError` | `WASM_LOAD_FAILED` | WASM モジュールの読み込み失敗時 |
+| `ModelInitError` | `MODEL_INIT_FAILED` | モデル初期化失敗時（重み破損、CRC 不一致など） |
+| `AudioContextError` | `AUDIO_CONTEXT_ERROR` | AudioContext の生成や状態遷移の失敗時 |
+| `WorkletError` | `WORKLET_ERROR` | AudioWorklet の登録や通信の失敗時 |
+| `ValidationError` | `VALIDATION_ERROR` | 不正な引数 |
+| `DestroyedError` | `DESTROYED_ERROR` | 破棄済みインスタンスへの操作 |
+
+```typescript
+import { WasmLoadError, DestroyedError } from 'fastenhancer-web/errors';
+```
+
+---
+
+## モデル比較
+
+すべてのモデルは 48 kHz 音声をネイティブ処理し、hop size は 512 サンプルです（1 フレームあたりの予算は 10.67 ms です）。
+
+| | Tiny | Base | Small |
+|---|------|------|-------|
+| **パラメータ数** | 28K | 101K | 207K |
+| **WASM SIMD サイズ** | 60 KB | 58 KB | 60 KB |
+| **重みサイズ** | 111 KB | 397 KB | 814 KB |
+| **合計 (gzip)** | **128 KB** | **395 KB** | **783 KB** |
+| **処理時間 (SIMD median)** | 0.51 ms | 1.71 ms | 3.84 ms |
+| **処理時間 (SIMD P99)** | 0.76 ms | 2.09 ms | 4.42 ms |
+| **予算使用率** | 4.8% | 16% | 36% |
+| **RNNFormer ブロック数** | 2 | 3 | 3 |
+| **Encoder ブロック数** | 2 | 2 | 3 |
+| **チャネル数** | 24 | 48 | 64 |
+
+**推奨:**
+- **Small** — 多くの用途で推奨。最高品質のノイズ除去を提供。
+- **Base** — 品質と速度のバランスが良い。モバイル端末にも適する。
+- **Tiny** — 最小リソース消費。低消費電力環境やレイテンシ最優先の用途向け。
+
+---
+
+## アーキテクチャ
+
+```
+Microphone Input (48 kHz)
+    │
+    ▼
+┌─────────────────────────────┐
+│  AudioWorkletProcessor      │  ← runs on audio thread
+│  ┌───────────────────────┐  │
+│  │  Frame Buffer          │  │  4 × 128 quantum → 512 samples
+│  │  WASM SIMD Engine      │  │  FFT → Encoder → RNNFormer → Decoder → iFFT
+│  │  Frame Drop Scheduler  │  │  5 consecutive drops → auto bypass
+│  └───────────────────────┘  │
+└─────────────────────────────┘
+    │
+    ▼
+Clean Audio Output (48 kHz)
+```
+
+**設計上の要点:**
+- Emscripten の SINGLE_FILE モードによる WASM バイナリの JS 埋め込み（別ファイルの `.wasm` fetch なし）
+- AudioWorklet での生の `WebAssembly.instantiate()` 利用と worklet 内への Emscripten グルーコード不持ち込み
+- メインスレッドから worklet への `postMessage` による WASM バイナリの ArrayBuffer 受け渡し
+- ニューラルネットワーク用バッファの初期化時一括確保（実行時 `malloc` なし）
+
+---
+
+## ブラウザ対応
+
+| ブラウザ | 状態 | 備考 |
+|---------|--------|-------|
+| Chrome 91+ | ✅ 完全対応 | WASM SIMD + AudioWorklet 対応 |
+| Edge 91+ | ✅ 完全対応 | Chromium ベース |
+| Firefox 89+ | ⚠️ 未検証 | WASM SIMD の 89 以降での利用可 |
+| Safari 16.4+ | ⚠️ 未検証 | WASM SIMD の 16.4 以降での利用可 |
+
+**要件:**
+- WASM SIMD 対応（非対応時は scalar へフォールバック）
+- AudioWorklet 対応
+- `blob:` URL を許可した CSP（SINGLE_FILE WASM のため）
+- `SharedArrayBuffer` / `Cross-Origin-Isolation` ヘッダー不要
+
+---
+
+## エクスポートマップ
+
+```json
+{
+  ".":            "メイン API（createDenoiser, createStreamDenoiser, diagnose, getModels, ...）",
+  "./react":      "React Hook（useDenoiser）",
+  "./stream":     "AudioWorklet 統合（createStreamDenoiser）",
+  "./loader":     "WASM ローダーユーティリティ",
+  "./errors":     "エラークラス",
+  "./wasm/*":     "WASM SINGLE_FILE モジュール（tiny/base/small × scalar/simd）"
+}
+```
+
+---
+
+## 開発
+
+```bash
+# 依存関係をインストール
+bun install
+
+# TypeScript のユニットテストを実行 (162 tests)
+bun run test
+
+# TypeScript をビルド
+bun run build:ts
+
+# すべての WASM バリアントをビルド (Emscripten SDK が必要)
+bun run build:wasm:all
+
+# 全体をビルド
+bun run build:all
+
+# C エンジンのネイティブテストを実行 (154 tests, gcc/MinGW が必要)
+# Individual test executables are built and run via build scripts
+```
+
+### テスト構成
+
+| スイート | 環境 | フレームワーク | テスト数 | 目的 |
+|-------|-------------|-----------|-------|---------|
+| C native | gcc (MinGW) | Unity | 154 | C モジュールの正しさ |
+| WASM scalar | Emscripten (no SIMD) | vitest | 31 | Emscripten 変換の検証 |
+| WASM SIMD | Emscripten (-msimd128) | vitest | 31 | SIMD 固有の不具合検出 |
+| TypeScript unit | Node.js | vitest | 162 | API 層の正しさ |
+| Browser E2E | Chrome | Playwright | 9 | AudioWorklet 統合 |
+
+**差分で見るデバッグ指針:** C↔WASM scalar は Emscripten の問題、scalar↔SIMD は SIMD の問題、SIMD↔Browser は統合部分の問題を疑うと切り分けやすくなります。
+
+---
+
+## 数値精度
+
+PyTorch の参照実装と WASM SIMD 出力を 1000 フレームで比較した結果は次のとおりです。
+
+| モデル | MSE | 最大絶対差 |
+|-------|-----|------------------------|
+| Tiny | 2.69 × 10⁻¹⁴ | 3.52 × 10⁻⁶ |
+| Base | 1.37 × 10⁻¹⁴ | 4.23 × 10⁻⁷ |
+| Small | 1.69 × 10⁻¹⁴ | 5.85 × 10⁻⁷ |
+
+---
+
+## ライセンス
+
+MIT
+
+## クレジット
+
+- [FastEnhancer](https://github.com/aask1357/fastenhancer) — 元になっているニューラルネットワークアーキテクチャ（ICASSP 2026）
+- [fastenhancer.c.wasm](https://github.com/kdrkdrkdr/fastenhancer.c.wasm) — 参照となる C/WASM 実装
