@@ -68,8 +68,6 @@ export interface Denoiser {
   readonly performance: PerformanceStats;
   readonly isSwitching: boolean;
   switchModel(options: { model: Model; weightData: ArrayBuffer; modelSizeId?: number }): Promise<void>;
-  [Symbol.dispose](): void;
-  [Symbol.asyncDispose](): Promise<void>;
 }
 
 function createDenoiserInstance(initialWasm: WasmInstance, initialStatePtr: number, initialHopSize: number): Denoiser {
@@ -77,7 +75,7 @@ function createDenoiserInstance(initialWasm: WasmInstance, initialStatePtr: numb
   let bypassEnabled = false;
   let agcFlag = false;
   let hpfFlag = false;
-  let switching = false;
+  let switchCount = 0;
   let switchQueue: Promise<void> | null = null;
 
   let wasm = initialWasm;
@@ -98,14 +96,26 @@ function createDenoiserInstance(initialWasm: WasmInstance, initialStatePtr: numb
     const handlers = listeners.get(event);
     if (handlers) {
       for (const handler of handlers) {
-        handler(...args);
+        try {
+          handler(...args);
+        } catch (e) {
+          if (typeof console !== 'undefined') {
+            console.error('[fastenhancer] Event handler error:', e);
+          }
+        }
       }
     }
 
     const onceHandlers = onceListeners.get(event);
     if (onceHandlers) {
       for (const handler of onceHandlers) {
-        handler(...args);
+        try {
+          handler(...args);
+        } catch (e) {
+          if (typeof console !== 'undefined') {
+            console.error('[fastenhancer] Event handler error:', e);
+          }
+        }
       }
       onceHandlers.clear();
     }
@@ -121,7 +131,10 @@ function createDenoiserInstance(initialWasm: WasmInstance, initialStatePtr: numb
     return currentState === 'destroyed';
   }
 
-  const denoiser: Denoiser = {
+  const denoiser: Denoiser & {
+    [Symbol.dispose](): void;
+    [Symbol.asyncDispose](): Promise<void>;
+  } = {
     get state(): DenoiserState {
       return currentState;
     },
@@ -239,67 +252,69 @@ function createDenoiserInstance(initialWasm: WasmInstance, initialStatePtr: numb
     },
 
     get isSwitching(): boolean {
-      return switching;
+      return switchCount > 0;
     },
 
     async switchModel(options: { model: Model; weightData: ArrayBuffer; modelSizeId?: number }): Promise<void> {
       ensureReady('switchModel');
-      switching = true;
+      switchCount++;
 
       const doSwitch = async () => {
         try {
-        const { model, weightData, modelSizeId: explicitId } = options;
-        const sizeId = resolveModelSizeId(model, explicitId);
-        const newWasm = model._wasm ?? (await model.wasmFactory());
+          const { model, weightData, modelSizeId: explicitId } = options;
+          const sizeId = resolveModelSizeId(model, explicitId);
+          const newWasm = model._wasm ?? (await model.wasmFactory());
 
-        if (isDestroyed()) {
-          return;
-        }
+          if (isDestroyed()) {
+            return;
+          }
 
-        const weightBytes = new Uint8Array(weightData);
-        const weightLen = weightBytes.byteLength;
-        const weightPtr = newWasm._malloc(weightLen);
-        if (weightPtr === 0) {
-          throw new ModelInitError('Failed to allocate memory in the WASM heap');
-        }
+          const weightBytes = new Uint8Array(weightData);
+          const weightLen = weightBytes.byteLength;
+          const weightPtr = newWasm._malloc(weightLen);
+          if (weightPtr === 0) {
+            throw new ModelInitError('Failed to allocate memory in the WASM heap');
+          }
 
-        let newStatePtr: number;
-        try {
-          new Uint8Array(newWasm.HEAPF32.buffer).set(weightBytes, weightPtr);
-          newStatePtr = newWasm._fe_init(sizeId, weightPtr, weightLen);
+          let newStatePtr: number;
+          try {
+            new Uint8Array(newWasm.HEAPF32.buffer).set(weightBytes, weightPtr);
+            newStatePtr = newWasm._fe_init(sizeId, weightPtr, weightLen);
+          } finally {
+            newWasm._free(weightPtr);
+          }
+
+          if (isDestroyed()) {
+            if (newStatePtr !== 0) {
+              newWasm._fe_destroy(newStatePtr);
+            }
+            return;
+          }
+
+          if (newStatePtr === 0) {
+            throw new ModelInitError('Failed to initialize the new model');
+          }
+
+          const oldWasm = wasm;
+          const oldStatePtr = statePtr;
+
+          wasm = newWasm;
+          statePtr = newStatePtr;
+          hopSize = newWasm._fe_get_hop_size(newStatePtr);
+          inputOffset = newWasm._fe_get_input_ptr(newStatePtr) / 4;
+          outputOffset = newWasm._fe_get_output_ptr(newStatePtr) / 4;
+
+          if (agcFlag) newWasm._fe_set_agc(newStatePtr, 1);
+          if (hpfFlag) newWasm._fe_set_hpf(newStatePtr, 1);
+
+          oldWasm._fe_destroy(oldStatePtr);
+
+          timingWriteIndex = 0;
+          timingCount = 0;
+          droppedFrames = 0;
         } finally {
-          newWasm._free(weightPtr);
+          switchCount--;
         }
-
-        if (isDestroyed()) {
-          newWasm._fe_destroy(newStatePtr);
-          return;
-        }
-
-        if (newStatePtr === 0) {
-          throw new ModelInitError('Failed to initialize the new model');
-        }
-
-        const oldWasm = wasm;
-        const oldStatePtr = statePtr;
-
-        wasm = newWasm;
-        statePtr = newStatePtr;
-        hopSize = newWasm._fe_get_hop_size(newStatePtr);
-        inputOffset = newWasm._fe_get_input_ptr(newStatePtr) / 4;
-        outputOffset = newWasm._fe_get_output_ptr(newStatePtr) / 4;
-
-        if (agcFlag) newWasm._fe_set_agc(newStatePtr, 1);
-        if (hpfFlag) newWasm._fe_set_hpf(newStatePtr, 1);
-
-        oldWasm._fe_destroy(oldStatePtr);
-
-        timingWriteIndex = 0;
-        timingCount = 0;
-        droppedFrames = 0;
-      } finally {
-        switching = false;
-      }
       };
 
       switchQueue = (switchQueue ?? Promise.resolve()).then(doSwitch, doSwitch);
@@ -318,6 +333,16 @@ function createDenoiserInstance(initialWasm: WasmInstance, initialStatePtr: numb
   return denoiser;
 }
 
+/**
+ * Creates a frame-level denoiser.
+ *
+ * Multiple denoisers created from the same Model share the underlying
+ * WASM module instance for memory efficiency. Each denoiser maintains
+ * independent processing state (via separate fe_init calls).
+ *
+ * @param options - Model, weight data, and optional model size ID
+ * @returns A Denoiser instance for frame-by-frame processing
+ */
 export async function createDenoiser(options: {
   model: Model;
   weightData: ArrayBuffer;
@@ -382,7 +407,7 @@ export async function isSupported(): Promise<SupportInfo> {
   };
 }
 
-export { loadModel } from './loader.js';
+export { loadModel, clearModelCache, clearCachedModel } from './loader.js';
 export type { LoadModelOptions, LoadedModel } from './loader.js';
 export { createStreamDenoiser } from './stream-denoiser.js';
 export type { StreamDenoiserOptions, StreamDenoiser } from './stream-denoiser.js';

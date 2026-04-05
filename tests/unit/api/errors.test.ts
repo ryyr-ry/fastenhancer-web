@@ -1,6 +1,26 @@
 import { describe, it, expect } from 'vitest';
 import * as errors from '../../../src/api/errors.js';
 
+const EXPECTED_ERROR_CLASSES = [
+  'FastEnhancerError',
+  'WasmLoadError',
+  'ModelInitError',
+  'AudioContextError',
+  'WorkletError',
+  'ValidationError',
+  'DestroyedError',
+] as const;
+
+const EXPECTED_CODES: Record<string, string> = {
+  FastEnhancerError: 'FAST_ENHANCER_ERROR',
+  WasmLoadError: 'WASM_LOAD_FAILED',
+  ModelInitError: 'MODEL_INIT_FAILED',
+  AudioContextError: 'AUDIO_CONTEXT_ERROR',
+  WorkletError: 'WORKLET_ERROR',
+  ValidationError: 'VALIDATION_ERROR',
+  DestroyedError: 'DESTROYED_ERROR',
+};
+
 describe('Error module', () => {
   function getErrorClasses() {
     return Object.values(errors).filter(
@@ -9,23 +29,24 @@ describe('Error module', () => {
     );
   }
 
-  it('exports at least 6 error classes', () => {
-    const classes = getErrorClasses();
-    expect(classes.length).toBeGreaterThanOrEqual(6);
+  it('exports exactly the expected error classes', () => {
+    const exportedNames = getErrorClasses().map((c) => c.name).sort();
+    expect(exportedNames).toEqual([...EXPECTED_ERROR_CLASSES].sort());
   });
 
-  it('all errors extend Error', () => {
+  it('each subclass is instanceof FastEnhancerError and Error', () => {
     for (const ErrorClass of getErrorClasses()) {
       const instance = new ErrorClass('test');
       expect(instance).toBeInstanceOf(Error);
+      expect(instance).toBeInstanceOf(errors.FastEnhancerError);
     }
   });
 
-  it('all errors have a non-empty string code property', () => {
+  it('each error class has the documented code constant', () => {
     for (const ErrorClass of getErrorClasses()) {
       const instance = new ErrorClass('test');
-      expect(typeof instance.code).toBe('string');
-      expect(instance.code.length).toBeGreaterThan(0);
+      const expected = EXPECTED_CODES[ErrorClass.name];
+      expect(instance.code).toBe(expected);
     }
   });
 
@@ -46,22 +67,17 @@ describe('Error module', () => {
     }
   });
 
-  it('all errors can be checked with instanceof in catch blocks', () => {
-    for (const ErrorClass of getErrorClasses()) {
-      let caught = false;
-      try {
-        throw new ErrorClass('test');
-      } catch (e) {
-        if (e instanceof Error) caught = true;
-      }
-      expect(caught).toBe(true);
-    }
-  });
-
-  it('reflects the constructor argument in the message property', () => {
+  it('all errors preserve the constructor message', () => {
     for (const ErrorClass of getErrorClasses()) {
       const instance = new ErrorClass('specific message');
       expect(instance.message).toBe('specific message');
+    }
+  });
+
+  it('all errors set name to match the class name', () => {
+    for (const ErrorClass of getErrorClasses()) {
+      const instance = new ErrorClass('test');
+      expect(instance.name).toBe(ErrorClass.name);
     }
   });
 });

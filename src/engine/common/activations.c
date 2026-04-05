@@ -82,10 +82,9 @@ void fe_silu_batch(const float* input, float* output, int n) {
     for (int i = n4; i < n; i++) {
         output[i] = fe_silu(input[i]);
     }
-    /* The SIMD fast path cannot handle NaN/Inf inputs,
-       so recompute only affected elements with scalar fe_silu() */
+    /* Fixup non-finite outputs from NaN/Inf inputs (rare in practice) */
     for (int i = 0; i < n4; i++) {
-        if (fe_act_is_nan(input[i]) || !fe_act_is_finite(input[i])) {
+        if (!fe_act_is_finite(output[i])) {
             output[i] = fe_silu(input[i]);
         }
     }

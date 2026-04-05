@@ -1,6 +1,8 @@
 const QUANTUM = 128;
 
 interface FrameBuffer {
+  // Returns at most one frame per push call.
+  // Chunks are expected to be no larger than one AudioWorklet quantum.
   push(chunk: Float32Array): Float32Array | null;
   readonly pendingSamples: number;
 }
@@ -15,11 +17,9 @@ export function createFrameBuffer(hopSize: number): FrameBuffer {
     },
 
     push(chunk: Float32Array): Float32Array | null {
-      if (writePos + chunk.length > buffer.length) {
-        writePos = 0;
-      }
-      buffer.set(chunk, writePos);
-      writePos += chunk.length;
+      const copyLen = Math.min(chunk.length, buffer.length - writePos);
+      buffer.set(chunk.subarray(0, copyLen), writePos);
+      writePos += copyLen;
 
       if (writePos >= hopSize) {
         const frame = new Float32Array(hopSize);
@@ -30,6 +30,13 @@ export function createFrameBuffer(hopSize: number): FrameBuffer {
           buffer.copyWithin(0, hopSize, writePos);
         }
         writePos = remaining;
+
+        if (copyLen < chunk.length) {
+          const unconsumed = chunk.subarray(copyLen);
+          const reCopy = Math.min(unconsumed.length, buffer.length - writePos);
+          buffer.set(unconsumed.subarray(0, reCopy), writePos);
+          writePos += reCopy;
+        }
 
         return frame;
       }

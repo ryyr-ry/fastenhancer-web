@@ -11,7 +11,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import type { StreamDenoiser } from '../api/stream-denoiser.js';
 import { loadModel, type LoadedModel } from '../api/loader.js';
-import { DestroyedError } from '../api/errors.js';
 
 export type ModelSize = 'tiny' | 'base' | 'small';
 
@@ -77,6 +76,7 @@ export function useDenoiser(
   const [bypass, setBypassState] = useState(false);
 
   const streamDenoiserRef = useRef<StreamDenoiser | null>(null);
+  const mountedRef = useRef(true);
   const destroyedRef = useRef(false);
   const requestIdRef = useRef(0);
   const modelSizeRef = useRef(modelSize);
@@ -87,22 +87,31 @@ export function useDenoiser(
   optionsRef.current = options;
   bypassRef.current = bypass;
 
+  const warn = useCallback((message: string) => {
+    const onWarning = optionsRef.current?.onWarning;
+    if (onWarning) {
+      onWarning(message);
+      return;
+    }
+    console.warn(message);
+  }, []);
+
   const cleanupStreamDenoiser = useCallback(() => {
     requestIdRef.current++;
     const sd = streamDenoiserRef.current;
     if (sd) {
       try { sd.destroy(); } catch (e) {
-        console.warn('useDenoiser destroy failed during cleanup:', e instanceof Error ? e.message : String(e));
+        warn(`useDenoiser destroy failed during cleanup: ${e instanceof Error ? e.message : String(e)}`);
       }
       streamDenoiserRef.current = null;
     }
-    setOutputStream(null);
-  }, []);
+    if (mountedRef.current) {
+      setOutputStream(null);
+    }
+  }, [warn]);
 
   const start = useCallback(async (inputStream: MediaStream) => {
-    if (destroyedRef.current) {
-      setError(new DestroyedError('This useDenoiser instance has already been destroyed'));
-      setState('error');
+    if (destroyedRef.current || !mountedRef.current) {
       return;
     }
 
@@ -119,7 +128,7 @@ export function useDenoiser(
         simd: opts?.simd,
       });
 
-      if (destroyedRef.current || requestIdRef.current !== thisRequestId) {
+      if (destroyedRef.current || !mountedRef.current || requestIdRef.current !== thisRequestId) {
         return;
       }
 
@@ -128,9 +137,9 @@ export function useDenoiser(
         onWarning: opts?.onWarning,
       });
 
-      if (destroyedRef.current || requestIdRef.current !== thisRequestId) {
+      if (destroyedRef.current || !mountedRef.current || requestIdRef.current !== thisRequestId) {
         try { sd.destroy(); } catch (e) {
-          console.warn('useDenoiser destroy failed during race-condition cleanup:', e instanceof Error ? e.message : String(e));
+          warn(`useDenoiser destroy failed during race-condition cleanup: ${e instanceof Error ? e.message : String(e)}`);
         }
         return;
       }
@@ -146,17 +155,17 @@ export function useDenoiser(
       setState('error');
       optionsRef.current?.onError?.(e);
     }
-  }, [cleanupStreamDenoiser]);
+  }, [cleanupStreamDenoiser, warn]);
 
   const stop = useCallback(() => {
+    if (destroyedRef.current || !mountedRef.current) return;
     cleanupStreamDenoiser();
-    if (!destroyedRef.current) {
-      setState('idle');
-      setError(null);
-    }
+    setState('idle');
+    setError(null);
   }, [cleanupStreamDenoiser]);
 
   const setBypass = useCallback((value: boolean) => {
+    if (destroyedRef.current || !mountedRef.current) return;
     setBypassState(value);
     const sd = streamDenoiserRef.current;
     if (sd && sd.state !== 'destroyed') {
@@ -165,14 +174,16 @@ export function useDenoiser(
   }, []);
 
   const destroy = useCallback(() => {
-    if (destroyedRef.current) return;
+    if (destroyedRef.current || !mountedRef.current) return;
     destroyedRef.current = true;
     cleanupStreamDenoiser();
+    setError(null);
     setState('destroyed');
   }, [cleanupStreamDenoiser]);
 
   useEffect(() => {
     return () => {
+      mountedRef.current = false;
       cleanupStreamDenoiser();
     };
   }, [cleanupStreamDenoiser]);

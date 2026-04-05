@@ -4,6 +4,7 @@ export default defineConfig({
   testDir: './tests/browser',
   testMatch: '*.spec.ts',
   timeout: 30000,
+  workers: 4,
   projects: [
     {
       name: 'chromium',
@@ -17,6 +18,14 @@ export default defineConfig({
       name: 'firefox',
       use: {
         browserName: 'firefox',
+        headless: true,
+        baseURL: 'http://localhost:3457',
+      },
+    },
+    {
+      name: 'webkit',
+      use: {
+        browserName: 'webkit',
         headless: true,
         baseURL: 'http://localhost:3457',
       },

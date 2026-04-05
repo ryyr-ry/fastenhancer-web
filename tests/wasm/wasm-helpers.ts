@@ -79,6 +79,13 @@ export function processAllFrames(
   input: Float32Array,
   hopSize: number,
 ): Float32Array {
+  const remainder = input.length % hopSize;
+  if (remainder !== 0) {
+    console.warn(
+      `processAllFrames: input length ${input.length} is not a multiple of hopSize ${hopSize}. ` +
+      `${remainder} trailing samples will be discarded.`,
+    );
+  }
   const nFrames = Math.floor(input.length / hopSize);
   const inPtr = module._fe_get_input_ptr(state);
   const outPtr = module._fe_get_output_ptr(state);

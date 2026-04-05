@@ -122,17 +122,42 @@ const {
 - React 18+ の Strict Mode での安全な利用（二重 mount / unmount への耐性）
 - race condition への強さと古い `start()` 結果の自動破棄
 
-### `createDenoiser(options)` — フレーム単位処理 API
+### `loadModel(modelSize, options?)` — モデル・リソースローダー
+
+```typescript
+import { loadModel } from 'fastenhancer-web';
+
+const model = await loadModel('small');
+// model.createDenoiser()         — Layer 1: フレーム単位処理
+// model.createStreamDenoiser()   — Layer 2: リアルタイム AudioWorklet ストリーム
+// model.wasmBytes                — 生の WASM バイナリ（上級者向け）
+// model.weightData               — 重みバイナリ（上級者向け）
+// model.exportMap                — WASM エクスポート名マッピング（上級者向け）
+```
+
+| パラメータ | 型 | 説明 |
+|-----------|------|-------------|
+| `modelSize` | `'tiny' \| 'base' \| 'small'` | 使用するモデルサイズ（必須） |
+| `options.baseUrl` | `string` | リソースファイルのベース URL（省略時はゼロコンフィグの埋め込みロード） |
+| `options.simd` | `boolean` | SIMD の有効/無効を明示指定（デフォルトは自動検出） |
+
+結果はキャッシュされます — `loadModel('small')` を2回呼んでも同一の Promise が返ります。
+
+### `createDenoiser(options)` — フレーム単位処理 API（低レベル）
 
 ```typescript
 import { createDenoiser } from 'fastenhancer-web';
 ```
 
-### `createStreamDenoiser(options)` — AudioWorklet 統合
+> **注意:** 通常は `loadModel('small').then(m => m.createDenoiser())` の利用を推奨します。リソースのロードを自動的に処理します。直接の `createDenoiser()` 呼び出しには WASM ファクトリと重みデータを手動で渡す必要があります。
+
+### `createStreamDenoiser(options)` — AudioWorklet 統合（低レベル）
 
 ```typescript
 import { createStreamDenoiser } from 'fastenhancer-web';
 ```
+
+> **注意:** 通常は `loadModel()` 経由の `model.createStreamDenoiser(micStream)` の利用を推奨します。WASM、重み、エクスポートマップを自動処理します。直接の `createStreamDenoiser()` 呼び出しにはすべてのバイナリリソースを手動で渡す必要があります。
 
 ### `diagnose()` — ブラウザ互換性チェック
 
@@ -218,10 +243,13 @@ import { WasmLoadError, DestroyedError } from 'fastenhancer-web/errors';
 ```
 
 **設計上の要点:**
-- `loadModel()` が WASM バイナリ（`.wasm`）、重み（`.bin`）、エクスポートマップ（`.json`）を並列 fetch
+- `loadModel()` が WASM バイナリ、重み、エクスポートマップを自動ロード — デフォルトでは埋め込み JS モジュール（`import()`）を使いバンドラー設定不要、`baseUrl` 指定時は `fetch()` にフォールバック
+- デフォルトの worklet 読み込みはインライン Blob URL を使用（外部ファイル依存なし）、`blob:` を禁止する厳格な CSP 環境では `workletUrl` オプションを指定可能
 - AudioWorklet での生の `WebAssembly.instantiate()` 利用と worklet 内への Emscripten グルーコード不持ち込み
+- 音声処理はモノラル専用 — ステレオ入力は最初のチャネルにダウンミックス
 - メインスレッドから worklet への `postMessage` による WASM バイナリの ArrayBuffer 受け渡し
 - ニューラルネットワーク用バッファの初期化時一括確保（実行時 `malloc` なし）
+- 全3モデル（tiny/base/small）および両バリアント（scalar/SIMD）をパッケージに埋め込み（tarball 約1.85 MB）。これは設定不要での利用を意図した設計です。ツリーシェイキング対応バンドラーは実際に `import()` したモデルのみを含みます。初回ダウンロードサイズを最小化したい場合は `loadModel()` の `baseUrl` オプションで CDN や自社サーバーからオンデマンドフェッチが可能です
 
 ---
 
@@ -238,6 +266,7 @@ import { WasmLoadError, DestroyedError } from 'fastenhancer-web/errors';
 - WASM SIMD 対応（非対応時は scalar へフォールバック）
 - AudioWorklet 対応
 - CSP で `wasm-unsafe-eval` の許可が必要（`WebAssembly.instantiate()` のため）
+- デフォルトの worklet 読み込みは `blob:` URL を使用 — CSP で `blob:` を禁止している場合は `workletUrl` オプションを指定してください
 - `SharedArrayBuffer` / `Cross-Origin-Isolation` ヘッダー不要
 
 ---
@@ -262,7 +291,7 @@ import { WasmLoadError, DestroyedError } from 'fastenhancer-web/errors';
 # 依存関係をインストール
 bun install
 
-# vitest 全テストを実行 (168 tests: unit + WASM + adversarial)
+# vitest 全テストを実行 (187 tests: unit + WASM + adversarial)
 bun run test
 
 # TypeScript をビルド
@@ -274,7 +303,7 @@ bun run build:wasm:all
 # 全体をビルド
 bun run build:all
 
-# C エンジンのネイティブテストを実行 (200 tests, gcc/MinGW が必要)
+# C エンジンのネイティブテストを実行 (201 tests, gcc/MinGW が必要)
 # テスト実行ファイルはビルドスクリプト経由で生成・実行されます
 ```
 
@@ -282,9 +311,9 @@ bun run build:all
 
 | スイート | 環境 | フレームワーク | テスト数 | 目的 |
 |-------|-------------|-----------|-------|---------|
-| C native | gcc (MinGW) | Unity | 200 | C モジュールの正しさ |
+| C native | gcc (MinGW) | Unity | 201 | C モジュールの正しさ |
 | WASM | Emscripten (scalar + SIMD) | vitest | 30 | Emscripten 変換 + SIMD 正当性 |
-| TypeScript unit | Node.js | vitest | 138 | API / worklet / ライフサイクルの正しさ |
+| TypeScript unit | Node.js | vitest | 157 | API / worklet / ライフサイクルの正しさ |
 | Browser E2E | Chrome + Firefox | Playwright | 30 | AudioWorklet 統合 |
 
 **差分で見るデバッグ指針:** C↔WASM scalar は Emscripten の問題、scalar↔SIMD は SIMD の問題、SIMD↔Browser は統合部分の問題を疑うと切り分けやすくなります。

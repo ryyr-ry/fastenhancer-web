@@ -1,7 +1,7 @@
 /**
  * GRU cell (TypeScript reference implementation)
  * Pure TypeScript implementation equivalent to the C engine's gru.c.
- * Split-weight format (W_z/W_r/W_h, U_z/U_r/U_h, b_z/b_r/b_h)
+ * Split-weight format (W_z/W_r/W_h, U_z/U_r/U_h, b_z/b_r/b_in_n/b_hn_n)
  */
 
 export interface GruWeights {
@@ -13,14 +13,15 @@ export interface GruWeights {
   b_r: Float32Array; // [hiddenSize] — reset gate bias
   W_h: Float32Array; // [hiddenSize, inputSize] — candidate hidden input weights
   U_h: Float32Array; // [hiddenSize, hiddenSize] — candidate hidden hidden weights
-  b_h: Float32Array; // [hiddenSize] — candidate hidden bias
+  b_in_n: Float32Array; // [hiddenSize] — candidate hidden input bias
+  b_hn_n: Float32Array; // [hiddenSize] — candidate hidden hidden bias
 }
 
 /**
  * Execute one GRU step
  * z = sigmoid(W_z·x + U_z·h + b_z)
  * r = sigmoid(W_r·x + U_r·h + b_r)
- * n = tanh(W_h·x + r * (U_h·h) + b_h)
+ * n = tanh(W_h·x + b_in_n + r * (U_h·h + b_hn_n))
  * h_new = (1-z)*n + z*h
  */
 export function gruStep(
@@ -30,6 +31,30 @@ export function gruStep(
 ): Float32Array {
   const inputSize = input.length;
   const hiddenSize = hidden.length;
+
+  if (weights.W_z.length !== hiddenSize * inputSize ||
+      weights.W_r.length !== hiddenSize * inputSize ||
+      weights.W_h.length !== hiddenSize * inputSize) {
+    throw new RangeError(
+      `Input weight matrices must have length hiddenSize*inputSize (${hiddenSize}*${inputSize}=${hiddenSize * inputSize})`,
+    );
+  }
+  if (weights.U_z.length !== hiddenSize * hiddenSize ||
+      weights.U_r.length !== hiddenSize * hiddenSize ||
+      weights.U_h.length !== hiddenSize * hiddenSize) {
+    throw new RangeError(
+      `Hidden weight matrices must have length hiddenSize*hiddenSize (${hiddenSize}*${hiddenSize}=${hiddenSize * hiddenSize})`,
+    );
+  }
+  if (weights.b_z.length !== hiddenSize ||
+      weights.b_r.length !== hiddenSize ||
+      weights.b_in_n.length !== hiddenSize ||
+      weights.b_hn_n.length !== hiddenSize) {
+    throw new RangeError(
+      `Bias vectors must have length hiddenSize (${hiddenSize})`,
+    );
+  }
+
   const newHidden = new Float32Array(hiddenSize);
 
   for (let i = 0; i < hiddenSize; i++) {
@@ -54,11 +79,11 @@ export function gruStep(
     const r = sigmoid(rVal);
 
     // Candidate hidden state n
-    let nVal = weights.b_h[i];
+    let nVal = weights.b_in_n[i];
     for (let j = 0; j < inputSize; j++) {
       nVal += weights.W_h[i * inputSize + j] * input[j];
     }
-    let uhVal = 0;
+    let uhVal = weights.b_hn_n[i];
     for (let j = 0; j < hiddenSize; j++) {
       uhVal += weights.U_h[i * hiddenSize + j] * hidden[j];
     }

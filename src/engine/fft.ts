@@ -29,6 +29,9 @@ export function fft(realIn: Float32Array, imagIn: Float32Array): FftResult {
   if (n === 0 || (n & (n - 1)) !== 0) {
     throw new Error(`FFT size must be power of 2, got ${n}`);
   }
+  if (imagIn.length !== n) {
+    throw new Error(`realIn and imagIn must have the same length (got ${n} and ${imagIn.length})`);
+  }
 
   const real = new Float32Array(realIn);
   const imag = new Float32Array(imagIn);

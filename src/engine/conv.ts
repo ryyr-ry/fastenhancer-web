@@ -3,89 +3,117 @@
  * Pure TypeScript implementation equivalent to the C engine's conv.c.
  */
 
-/**
- * 1D convolution (single channel, single filter)
- * output[i] = sum_k input[i*stride + k] * kernel[k]  (for valid positions)
- */
 export function conv1d(
   input: Float32Array,
-  kernel: Float32Array,
+  weight: Float32Array,
+  bias: Float32Array | null,
+  inLen: number,
   inChannels: number,
   outChannels: number,
+  kernelSize: number,
+  stride: number,
   padding: number,
 ): Float32Array {
-  const inputLen = input.length;
-  const kernelLen = kernel.length;
-  const outputLen = inputLen - kernelLen + 1 + 2 * padding;
+  if (stride <= 0) return new Float32Array(0);
 
-  const padded = padding > 0 ? padArray(input, padding) : input;
-  const paddedLen = padded.length;
-  const outLen = paddedLen - kernelLen + 1;
+  const outLen = Math.floor((inLen + 2 * padding - kernelSize) / stride) + 1;
+  if (outLen <= 0) return new Float32Array(0);
 
-  const output = new Float32Array(outLen);
-  for (let i = 0; i < outLen; i++) {
-    let sum = 0;
-    for (let k = 0; k < kernelLen; k++) {
-      sum += padded[i + k] * kernel[k];
+  const output = new Float32Array(outChannels * outLen);
+
+  for (let oc = 0; oc < outChannels; oc++) {
+    for (let p = 0; p < outLen; p++) {
+      let sum = bias ? bias[oc] : 0.0;
+
+      for (let ic = 0; ic < inChannels; ic++) {
+        for (let k = 0; k < kernelSize; k++) {
+          const inPos = p * stride + k - padding;
+          if (inPos >= 0 && inPos < inLen) {
+            const wIdx = oc * inChannels * kernelSize + ic * kernelSize + k;
+            sum += weight[wIdx] * input[ic * inLen + inPos];
+          }
+        }
+      }
+
+      output[oc * outLen + p] = sum;
     }
-    output[i] = sum;
   }
+
   return output;
 }
 
-/**
- * Strided 1D convolution
- */
 export function stridedConv(
   input: Float32Array,
-  kernel: Float32Array,
+  weight: Float32Array,
+  bias: Float32Array | null,
+  inLen: number,
   inChannels: number,
   outChannels: number,
+  kernelSize: number,
   stride: number,
 ): Float32Array {
-  const inputLen = input.length;
-  const kernelLen = kernel.length;
-  const outputLen = Math.floor((inputLen - kernelLen) / stride) + 1;
+  if (stride <= 0) return new Float32Array(0);
 
-  const output = new Float32Array(outputLen);
-  for (let i = 0; i < outputLen; i++) {
-    let sum = 0;
-    const start = i * stride;
-    for (let k = 0; k < kernelLen; k++) {
-      sum += input[start + k] * kernel[k];
-    }
-    output[i] = sum;
-  }
-  return output;
+  const outLen = Math.floor((inLen - kernelSize) / stride) + 1;
+  if (outLen <= 0) return new Float32Array(0);
+
+  return conv1d(
+    input,
+    weight,
+    bias,
+    inLen,
+    inChannels,
+    outChannels,
+    kernelSize,
+    stride,
+    0,
+  );
 }
 
-/**
- * Transposed 1D convolution
- * output_length = (inputLen - 1) * stride + kernelLen
- */
 export function convTranspose1d(
   input: Float32Array,
-  kernel: Float32Array,
+  weight: Float32Array,
+  bias: Float32Array | null,
+  inLen: number,
   inChannels: number,
   outChannels: number,
+  kernelSize: number,
   stride: number,
+  padding: number,
 ): Float32Array {
-  const inputLen = input.length;
-  const kernelLen = kernel.length;
-  const outputLen = (inputLen - 1) * stride + kernelLen;
+  if (stride <= 0) return new Float32Array(0);
 
-  const output = new Float32Array(outputLen);
-  for (let i = 0; i < inputLen; i++) {
-    const outStart = i * stride;
-    for (let k = 0; k < kernelLen; k++) {
-      output[outStart + k] += input[i] * kernel[k];
+  const fullLen = (inLen - 1) * stride + kernelSize;
+  const outLen = fullLen - 2 * padding;
+  if (outLen <= 0) return new Float32Array(0);
+
+  const output = new Float32Array(outChannels * outLen);
+
+  for (let oc = 0; oc < outChannels; oc++) {
+    const biasValue = bias ? bias[oc] : 0.0;
+    for (let p = 0; p < outLen; p++) {
+      output[oc * outLen + p] = biasValue;
     }
   }
-  return output;
-}
 
-function padArray(input: Float32Array, padding: number): Float32Array {
-  const padded = new Float32Array(input.length + 2 * padding);
-  padded.set(input, padding);
-  return padded;
+  for (let oc = 0; oc < outChannels; oc++) {
+    for (let ic = 0; ic < inChannels; ic++) {
+      for (let i = 0; i < inLen; i++) {
+        const inVal = input[ic * inLen + i];
+        const fullStart = i * stride;
+
+        for (let k = 0; k < kernelSize; k++) {
+          const fullPos = fullStart + k;
+          const outPos = fullPos - padding;
+
+          if (outPos >= 0 && outPos < outLen) {
+            const wIdx = ic * outChannels * kernelSize + oc * kernelSize + k;
+            output[oc * outLen + outPos] += weight[wIdx] * inVal;
+          }
+        }
+      }
+    }
+  }
+
+  return output;
 }

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { createDenoiser, isSupported } from '../../../src/api/index.js';
 import type { WasmInstance, Model } from '../../../src/api/index.js';
+import { DestroyedError, ModelInitError, ValidationError } from '../../../src/api/errors.js';
 import { loadRealWasm, loadRealWeightData, createRealModel, createRealModelWithFactory } from '../../helpers/real-model.js';
 
 let sharedWasm: WasmInstance;
@@ -92,13 +93,13 @@ describe('createDenoiser (real WASM)', () => {
     const d = await createDenoiser({ model: freshModel(), weightData: sharedWeightData });
     d.destroy();
     expect(d.state).toBe('destroyed');
-    expect(() => d.processFrame(new Float32Array(512))).toThrow();
+    expect(() => d.processFrame(new Float32Array(512))).toThrow(DestroyedError);
   });
 
   it('throws ValidationError for input with an invalid size', async () => {
     const d = await createDenoiser({ model: freshModel(), weightData: sharedWeightData });
-    expect(() => d.processFrame(new Float32Array(0))).toThrow();
-    expect(() => d.processFrame(new Float32Array(256))).toThrow();
+    expect(() => d.processFrame(new Float32Array(0))).toThrow(ValidationError);
+    expect(() => d.processFrame(new Float32Array(256))).toThrow(ValidationError);
     d.destroy();
   });
 
@@ -106,14 +107,14 @@ describe('createDenoiser (real WASM)', () => {
     const corruptedWeights = new ArrayBuffer(24);
     await expect(
       createDenoiser({ model: freshModel(), weightData: corruptedWeights }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(ModelInitError);
   });
 
   it('throws ModelInitError for oversized weightData (heap exceeded)', async () => {
     const hugeWeights = new ArrayBuffer(2 * 1024 * 1024);
     await expect(
       createDenoiser({ model: freshModel(), weightData: hugeWeights }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(ModelInitError);
   });
 });
 
@@ -295,7 +296,7 @@ describe('switchModel (real WASM)', () => {
     const newWeightData = loadRealWeightData('tiny');
     await expect(
       d.switchModel({ model: newModel, weightData: newWeightData }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(DestroyedError);
   });
 
   it('does not crash when destroy() is called during switchModel', async () => {

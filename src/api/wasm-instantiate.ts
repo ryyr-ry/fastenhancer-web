@@ -11,6 +11,33 @@
 import type { WasmInstance } from './index.js';
 import { WasmLoadError } from './errors.js';
 
+const ABORT_IMPORTS = new Set(['abort', 'c', '__assert_fail', '__cxa_throw']);
+const KNOWN_SAFE_STUBS = new Set([
+  'emscripten_notify_memory_growth',
+  'emscripten_resize_heap',
+  '__cxa_atexit',
+  '__syscall_openat',
+  '__syscall_fcntl64',
+  '__syscall_ioctl',
+  'fd_write',
+  'fd_read',
+  'fd_close',
+  'fd_seek',
+  'environ_sizes_get',
+  'environ_get',
+  'proc_exit',
+  'clock_time_get',
+  'args_sizes_get',
+  'args_get',
+]);
+const REQUIRED_EXPORTS = [
+  '_malloc', '_free', '_fe_init', '_fe_destroy',
+  '_fe_process_inplace', '_fe_get_input_ptr', '_fe_get_output_ptr',
+  '_fe_get_hop_size', '_fe_get_n_fft',
+  '_fe_set_agc', '_fe_set_hpf', '_fe_reset',
+];
+const OPTIONAL_EXPORTS = ['_fe_process'];
+
 /**
  * Creates a WasmInstance from a .wasm binary and export map.
  *
@@ -35,17 +62,27 @@ export async function instantiateWasm(
 
   const needed = WebAssembly.Module.imports(module);
   const importObject: WebAssembly.Imports = {};
+  const unknownImports: string[] = [];
   for (const imp of needed) {
     if (!importObject[imp.module]) {
       importObject[imp.module] = {};
     }
     const mod = importObject[imp.module] as Record<string, WebAssembly.ImportValue>;
     if (imp.kind === 'function') {
-      mod[imp.name] =
-        imp.name === 'c'
-          ? () => { throw new Error('WASM abort'); }
-          : () => 0;
+      if (ABORT_IMPORTS.has(imp.name)) {
+        mod[imp.name] = () => {
+          throw new Error(`WASM abort import called: ${imp.module}.${imp.name}`);
+        };
+      } else if (KNOWN_SAFE_STUBS.has(imp.name)) {
+        mod[imp.name] = () => 0;
+      } else {
+        unknownImports.push(`${imp.module}.${imp.name}`);
+        mod[imp.name] = () => 0;
+      }
     }
+  }
+  if (unknownImports.length > 0 && typeof console !== 'undefined') {
+    console.warn(`[fastenhancer] Unknown WASM imports stubbed: ${unknownImports.join(', ')}`);
   }
 
   let instance: WebAssembly.Instance;
@@ -69,11 +106,28 @@ export async function instantiateWasm(
   }
 
   const exports: Record<string, unknown> = {};
-  for (const [readable, minified] of Object.entries(exportMap)) {
+  const exportedNames = new Set([...Object.keys(exportMap), ...OPTIONAL_EXPORTS]);
+  for (const readable of exportedNames) {
+    const minified = exportMap[readable];
+    if (!minified) {
+      continue;
+    }
     const exp = instance.exports[minified];
     if (typeof exp === 'function') {
       exports[readable] = exp;
     }
+  }
+  const missingExports: string[] = [];
+  for (const name of REQUIRED_EXPORTS) {
+    if (typeof exports[name] !== 'function') {
+      missingExports.push(name);
+    }
+  }
+  if (missingExports.length > 0) {
+    throw new WasmLoadError(
+      `WASM module is missing required exports: ${missingExports.join(', ')}. ` +
+      `Check that the export map matches the compiled WASM binary.`,
+    );
   }
 
   const memoryRef = memory;

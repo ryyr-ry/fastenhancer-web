@@ -22,7 +22,17 @@ const FLAT_DIRS = [
   path.join(ROOT, 'weights'),
 ];
 
-function serveFlatFile(fileName, res) {
+function crossOriginHeaders(urlPath) {
+  if (urlPath.includes('perf-page')) {
+    return {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    };
+  }
+  return {};
+}
+
+function serveFlatFile(fileName, res, urlPath) {
   for (const dir of FLAT_DIRS) {
     const candidate = path.join(dir, fileName);
     if (fs.existsSync(candidate)) {
@@ -34,7 +44,10 @@ function serveFlatFile(fileName, res) {
           res.end('Read error');
           return;
         }
-        res.writeHead(200, { 'Content-Type': mime });
+        res.writeHead(200, {
+          'Content-Type': mime,
+          ...crossOriginHeaders(urlPath),
+        });
         res.end(data);
       });
       return;
@@ -54,7 +67,7 @@ const server = http.createServer((req, res) => {
       res.end('Forbidden');
       return;
     }
-    serveFlatFile(fileName, res);
+    serveFlatFile(fileName, res, urlPath);
     return;
   }
 
@@ -75,7 +88,10 @@ const server = http.createServer((req, res) => {
       res.end('Not found: ' + urlPath);
       return;
     }
-    res.writeHead(200, { 'Content-Type': mime });
+    res.writeHead(200, {
+      'Content-Type': mime,
+      ...crossOriginHeaders(urlPath),
+    });
     res.end(data);
   });
 });

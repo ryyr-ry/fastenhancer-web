@@ -13,7 +13,7 @@
     "sourceMap": true,
     "outDir": "./dist",
     "rootDir": "./src",
-    "types": ["node"],
+    "types": [],
     "lib": ["ES2022", "DOM", "DOM.Iterable", "ESNext.Disposable"]
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"],

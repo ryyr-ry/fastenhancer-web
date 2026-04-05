@@ -17,14 +17,57 @@ import os
 import sys
 import subprocess
 import json
+import glob as globmod
 from pathlib import Path
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 
 PROJECT_ROOT = Path(__file__).parent
-MSVC_CL = r"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\bin\Hostx64\x64\cl.exe"
-MSVC_LINK = r"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\bin\Hostx64\x64\link.exe"
-MSVC_LIBS = r"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\lib\x64"
-WIN_SDK_LIBS = r"C:\Program Files (x86)\Windows Kits\10\Lib\10.0.26100.0\ucrt\x64"
+
+
+def _find_msvc_tools() -> Tuple[str, str, str, str]:
+    """Auto-detect MSVC cl.exe, link.exe, lib dir, and Windows SDK ucrt lib dir."""
+    vs_base = Path(r"C:\Program Files (x86)\Microsoft Visual Studio")
+    if not vs_base.exists():
+        vs_base = Path(r"C:\Program Files\Microsoft Visual Studio")
+
+    cl_path: Optional[str] = None
+    for edition in ["BuildTools", "Community", "Professional", "Enterprise"]:
+        for year in ["2022", "2019"]:
+            msvc_root = vs_base / year / edition / "VC" / "Tools" / "MSVC"
+            if msvc_root.exists():
+                versions = sorted(msvc_root.iterdir(), reverse=True)
+                for ver_dir in versions:
+                    candidate = ver_dir / "bin" / "Hostx64" / "x64" / "cl.exe"
+                    if candidate.exists():
+                        cl_path = str(candidate)
+                        link_path = str(candidate.parent / "link.exe")
+                        lib_path = str(ver_dir / "lib" / "x64")
+                        break
+                if cl_path:
+                    break
+        if cl_path:
+            break
+
+    if not cl_path:
+        raise FileNotFoundError("MSVC cl.exe not found. Install Visual Studio Build Tools.")
+
+    sdk_base = Path(r"C:\Program Files (x86)\Windows Kits\10\Lib")
+    sdk_lib: Optional[str] = None
+    if sdk_base.exists():
+        sdk_versions = sorted(sdk_base.iterdir(), reverse=True)
+        for sdk_ver in sdk_versions:
+            ucrt = sdk_ver / "ucrt" / "x64"
+            if ucrt.exists():
+                sdk_lib = str(ucrt)
+                break
+
+    if not sdk_lib:
+        raise FileNotFoundError("Windows SDK ucrt libs not found.")
+
+    return cl_path, link_path, lib_path, sdk_lib
+
+
+MSVC_CL, MSVC_LINK, MSVC_LIBS, WIN_SDK_LIBS = _find_msvc_tools()
 
 TESTS_DIR = PROJECT_ROOT / "tests" / "engine"
 SRC_DIR = PROJECT_ROOT / "src" / "engine"

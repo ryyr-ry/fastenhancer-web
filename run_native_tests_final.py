@@ -39,7 +39,9 @@ TEST_CONFIGS = {
     },
     "test_adversarial": {
         "sources": [
+            "src/engine/exports.c",
             "src/engine/fastenhancer.c",
+            "src/engine/pipeline.c",
             "src/engine/common/fft.c",
             "src/engine/common/stft.c",
             "src/engine/common/conv.c",
@@ -60,7 +62,9 @@ TEST_CONFIGS = {
     },
     "test_edge_cases": {
         "sources": [
+            "src/engine/exports.c",
             "src/engine/fastenhancer.c",
+            "src/engine/pipeline.c",
             "src/engine/common/fft.c",
             "src/engine/common/stft.c",
             "src/engine/common/conv.c",
@@ -74,6 +78,7 @@ TEST_CONFIGS = {
         "sources": [
             "src/engine/exports.c",
             "src/engine/fastenhancer.c",
+            "src/engine/pipeline.c",
             "src/engine/common/fft.c",
             "src/engine/common/stft.c",
             "src/engine/common/conv.c",
@@ -86,6 +91,7 @@ TEST_CONFIGS = {
     "test_fast_math": {
         "sources": [
             "src/engine/fastenhancer.c",
+            "src/engine/pipeline.c",
             "src/engine/common/fft.c",
             "src/engine/common/stft.c",
             "src/engine/common/conv.c",
@@ -102,6 +108,7 @@ TEST_CONFIGS = {
         "sources": [
             "src/engine/exports.c",
             "src/engine/fastenhancer.c",
+            "src/engine/pipeline.c",
             "src/engine/common/fft.c",
             "src/engine/common/stft.c",
             "src/engine/common/conv.c",
@@ -120,6 +127,7 @@ TEST_CONFIGS = {
     "test_inference": {
         "sources": [
             "src/engine/fastenhancer.c",
+            "src/engine/pipeline.c",
             "src/engine/common/fft.c",
             "src/engine/common/stft.c",
             "src/engine/common/conv.c",
@@ -130,11 +138,23 @@ TEST_CONFIGS = {
         ],
     },
     "test_pipeline": {
-        "sources": ["src/engine/pipeline.c"],
+        "sources": [
+            "src/engine/exports.c",
+            "src/engine/fastenhancer.c",
+            "src/engine/pipeline.c",
+            "src/engine/common/fft.c",
+            "src/engine/common/stft.c",
+            "src/engine/common/conv.c",
+            "src/engine/common/gru.c",
+            "src/engine/common/attention.c",
+            "src/engine/common/activations.c",
+            "src/engine/common/compression.c",
+        ],
     },
     "test_safety": {
         "sources": [
             "src/engine/fastenhancer.c",
+            "src/engine/pipeline.c",
             "src/engine/common/gru.c",
             "src/engine/common/compression.c",
             "src/engine/common/attention.c",
@@ -147,6 +167,7 @@ TEST_CONFIGS = {
     "test_simd_accuracy": {
         "sources": [
             "src/engine/fastenhancer.c",
+            "src/engine/pipeline.c",
             "src/engine/common/activations.c",
             "src/engine/common/attention.c",
             "src/engine/common/fft.c",
@@ -166,6 +187,7 @@ TEST_CONFIGS = {
         "sources": [
             "src/engine/exports.c",
             "src/engine/fastenhancer.c",
+            "src/engine/pipeline.c",
             "src/engine/common/fft.c",
             "src/engine/common/stft.c",
             "src/engine/common/conv.c",

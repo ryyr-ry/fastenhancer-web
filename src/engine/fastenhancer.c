@@ -470,8 +470,7 @@ static void pipeline_mask_istft(FeState* s, float* output) {
                                 s->spec_out_re, s->spec_out_im,
                                 FE_FREQ_BINS, FE_COMPRESS_EXP);
 
-    /* Nyquist restoration (0+0j) */
-    s->spec_out_re[FE_FREQ_BINS] = 0.0f;
+    /* Nyquist restoration: imag=0 for real-valued output, preserve real part */
     s->spec_out_im[FE_FREQ_BINS] = 0.0f;
 
     /* iSTFT -> output waveform */
@@ -563,13 +562,17 @@ void fe_process_frame(FeState* state, const float* input, float* output) {
 
 void fe_set_hpf(FeState* state, int enabled) {
     if (!state) return;
-    state->hpf_enabled = enabled ? 1 : 0;
+    int val = enabled ? 1 : 0;
+    if (state->hpf_enabled == val) return;
+    state->hpf_enabled = val;
     fe_hpf_reset(&state->hpf);
 }
 
 void fe_set_agc(FeState* state, int enabled) {
     if (!state) return;
-    state->agc_enabled = enabled ? 1 : 0;
+    int val = enabled ? 1 : 0;
+    if (state->agc_enabled == val) return;
+    state->agc_enabled = val;
     fe_agc_reset(&state->agc);
 }
 

@@ -21,8 +21,9 @@ function TestApp() {
     });
 
   const handleStart = useCallback(async () => {
-    const ctx = new AudioContext({ sampleRate: 48000 });
+    let ctx: AudioContext | undefined;
     try {
+      ctx = new AudioContext({ sampleRate: 48000 });
       const osc = ctx.createOscillator();
       osc.frequency.value = 440;
       const dest = ctx.createMediaStreamDestination();
@@ -31,7 +32,7 @@ function TestApp() {
       inputCtxRef.current = ctx;
       await start(dest.stream);
     } catch {
-      ctx.close().catch((e: unknown) => console.warn('AudioContext close failed:', e));
+      ctx?.close().catch((e: unknown) => console.warn('AudioContext close failed:', e));
       inputCtxRef.current = null;
     }
   }, [start]);

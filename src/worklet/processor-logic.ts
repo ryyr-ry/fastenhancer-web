@@ -30,6 +30,10 @@ export function createProcessorScheduler(hopSize: number, sampleRate: number): P
     get isPassthrough() { return passthrough; },
 
     recordProcessingTime(ms: number): FrameInfo {
+      if (ms !== ms || ms === Infinity || ms === -Infinity || ms < 0) {
+        return { dropped: false, processingTimeMs: 0, budgetMs };
+      }
+
       const dropped = ms > budgetMs;
 
       if (passthrough) {

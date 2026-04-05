@@ -18,8 +18,10 @@ describe('selectWasmVariant', () => {
     expect(variant).toBe('scalar');
   });
 
-  it('returns a value compatible with the WasmVariant type', () => {
-    const variant: WasmVariant = selectWasmVariant(true);
-    expect(['scalar', 'simd']).toContain(variant);
+  it('always returns one of the two valid WasmVariant values across repeated calls', () => {
+    const valid: WasmVariant[] = ['scalar', 'simd'];
+    for (let i = 0; i < 10; i++) {
+      expect(valid).toContain(selectWasmVariant(i % 2 === 0));
+    }
   });
 });

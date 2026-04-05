@@ -51,6 +51,13 @@
           workletUrl: '/dist/worklet/processor.js',
         });
 
+        // Expose raw data for Playwright evaluate()
+        window.__testData = {
+          outputStreamType: denoiser.outputStream?.constructor?.name,
+          audioTrackCount: denoiser.outputStream?.getAudioTracks?.()?.length ?? 0,
+          stateAfterCreate: denoiser.state,
+        };
+
         check('outputStreamExists', denoiser.outputStream instanceof MediaStream);
         check('outputStreamHasTracks', denoiser.outputStream.getAudioTracks().length > 0);
         check('stateRunning', denoiser.state === 'running');
@@ -60,6 +67,7 @@
 
         const workletBypassState = await denoiser.getWorkletState();
         check('workletBypassOn', workletBypassState.bypass === true);
+        window.__testData.workletBypass = workletBypassState.bypass;
 
         denoiser.bypass = false;
         check('bypassOff', denoiser.bypass === false);
@@ -69,6 +77,7 @@
 
         const workletAgcState = await denoiser.getWorkletState();
         check('workletAgcOn', workletAgcState.agcEnabled === true);
+        window.__testData.workletAgc = workletAgcState.agcEnabled;
 
         denoiser.agcEnabled = false;
         check('agcOff', denoiser.agcEnabled === false);
@@ -78,22 +87,27 @@
 
         const workletHpfState = await denoiser.getWorkletState();
         check('workletHpfOn', workletHpfState.hpfEnabled === true);
+        window.__testData.workletHpf = workletHpfState.hpfEnabled;
 
         denoiser.hpfEnabled = false;
         check('hpfOff', denoiser.hpfEnabled === false);
 
         denoiser.destroy();
         check('stateDestroyed', denoiser.state === 'destroyed');
+        window.__testData.stateAfterDestroy = denoiser.state;
 
         denoiser.destroy();
         check('destroyIdempotent', denoiser.state === 'destroyed');
 
         let bypassThrew = false;
+        let destroyedErrorName = '';
         try { denoiser.bypass = true; } catch (e) {
           bypassThrew = true;
+          destroyedErrorName = e.constructor.name;
           check('destroyedErrorName', e.constructor.name === 'DestroyedError');
         }
         check('bypassAfterDestroyThrows', bypassThrew);
+        window.__testData.destroyedErrorName = destroyedErrorName;
 
         let agcThrew = false;
         try { denoiser.agcEnabled = true; } catch { agcThrew = true; }
@@ -102,6 +116,11 @@
         let hpfThrew = false;
         try { denoiser.hpfEnabled = true; } catch { hpfThrew = true; }
         check('hpfAfterDestroyThrows', hpfThrew);
+
+        window.__testData.bypassAfterDestroyThrew = bypassThrew;
+        window.__testData.agcAfterDestroyThrew = agcThrew;
+        window.__testData.hpfAfterDestroyThrew = hpfThrew;
+        window.__testData.completed = true;
 
         osc.stop();
       } catch (err) {

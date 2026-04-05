@@ -9,6 +9,7 @@
  */
 
 import { DestroyedError, AudioContextError, WorkletError } from './errors.js';
+import { initProcessorBlobUrl } from './embedded-loader.js';
 
 /** Sample rate expected by the model (Hz) */
 const TARGET_SAMPLE_RATE = 48000;
@@ -17,7 +18,7 @@ const TARGET_SAMPLE_RATE = 48000;
 const WORKLET_INIT_TIMEOUT_MS = 10_000;
 
 /** Maximum time to wait for Worklet state retrieval (ms) */
-const WORKLET_STATE_TIMEOUT_MS = 3_000;
+const WORKLET_STATE_TIMEOUT_MS = 500;
 
 type StreamDenoiserState = 'initializing' | 'running' | 'destroyed';
 
@@ -35,8 +36,12 @@ export interface StreamDenoiserOptions {
   modelSize: number;
   /** URL of the AudioWorklet JS file (default is used if omitted) */
   workletUrl?: string;
+  /** Existing AudioContext to reuse */
+  audioContext?: AudioContext;
   /** Warning callback */
   onWarning?: (message: string) => void;
+  /** Auto-bypass state callback */
+  onAutoBypass?: (enabled: boolean) => void;
 }
 
 /** Return type of createStreamDenoiser */
@@ -53,6 +58,8 @@ export interface StreamDenoiser {
   hpfEnabled: boolean;
   /** Releases all resources */
   destroy(): void;
+  /** Releases all resources and waits for cleanup to finish */
+  destroyAsync(): Promise<void>;
   /** Queries the internal state on the Worklet side (for debugging and testing) */
   getWorkletState(): Promise<WorkletStateResponse>;
 }
@@ -80,45 +87,79 @@ export async function createStreamDenoiser(
     exportMap,
     modelSize,
     workletUrl,
+    audioContext: injectedAudioContext,
     onWarning,
   } = options;
 
-  let audioContext: AudioContext;
-  try {
-    audioContext = new AudioContext({ sampleRate: TARGET_SAMPLE_RATE });
-  } catch (err) {
-    throw new AudioContextError(
-      `Failed to create AudioContext: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+  const emitWarning = (message: string): void => {
+    onWarning?.(message);
+  };
+  const _ownsAudioContext = injectedAudioContext === undefined;
 
-  if (audioContext.state === 'suspended') {
+  let audioContext: AudioContext = injectedAudioContext as AudioContext;
+  if (_ownsAudioContext) {
     try {
-      await audioContext.resume();
-    } catch (resumeErr) {
-      if (onWarning) {
-        onWarning(
-          `AudioContext.resume() failed (possibly due to autoplay restrictions): ${resumeErr instanceof Error ? resumeErr.message : String(resumeErr)}`,
-        );
-      }
+      audioContext = new AudioContext({ sampleRate: TARGET_SAMPLE_RATE });
+    } catch (err) {
+      throw new AudioContextError(
+        `Failed to create AudioContext: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
-  if (audioContext.sampleRate !== TARGET_SAMPLE_RATE && onWarning) {
-    onWarning(
+  const closeOwnedAudioContext = async (context: AudioContext, contextLabel: string): Promise<void> => {
+    if (!_ownsAudioContext || context.state === 'closed') {
+      return;
+    }
+    try {
+      await context.close();
+    } catch (resumeErr) {
+      emitWarning(`${contextLabel}: ${resumeErr instanceof Error ? resumeErr.message : String(resumeErr)}`);
+    }
+  };
+
+  if (_ownsAudioContext && audioContext.state === 'suspended') {
+    try {
+      await audioContext.resume();
+    } catch (resumeErr) {
+      await closeOwnedAudioContext(
+        audioContext,
+        'AudioContext.close() failed after resume error',
+      );
+      throw new AudioContextError(
+        `AudioContext.resume() failed (possibly due to autoplay restrictions): ${resumeErr instanceof Error ? resumeErr.message : String(resumeErr)}`,
+      );
+    }
+  }
+
+  if (audioContext.sampleRate !== TARGET_SAMPLE_RATE) {
+    emitWarning(
       `AudioContext sample rate is ${audioContext.sampleRate}Hz (expected: ${TARGET_SAMPLE_RATE}Hz).` +
       ` Audio quality may be reduced.`,
     );
   }
 
-  const processorUrl = workletUrl ?? new URL('../worklet/processor.js', import.meta.url).href;
+  let processorUrl: string;
+  try {
+    processorUrl = workletUrl ?? await initProcessorBlobUrl();
+  } catch (err) {
+    await closeOwnedAudioContext(audioContext, 'AudioContext.close() failed');
+    throw err;
+  }
 
   try {
     await audioContext.audioWorklet.addModule(processorUrl);
   } catch (err) {
-    await audioContext.close();
+    await closeOwnedAudioContext(audioContext, 'AudioContext.close() failed');
+    const errMsg = err instanceof Error ? err.message : String(err);
+    const usedBlobUrl = processorUrl.startsWith('blob:') || processorUrl.startsWith('data:');
+    const cspHint = usedBlobUrl
+      ? ' If your Content Security Policy blocks blob: or data: URLs,' +
+        ' provide a static processor.js URL via the workletUrl option,' +
+        ' or add "blob:" to your worker-src CSP directive.'
+      : '';
     throw new WorkletError(
-      `Failed to register AudioWorklet: ${err instanceof Error ? err.message : String(err)}`,
+      `Failed to register AudioWorklet: ${errMsg}${cspHint}`,
     );
   }
 
@@ -138,9 +179,7 @@ export async function createStreamDenoiser(
     source.connect(workletNode);
     workletNode.connect(destination);
   } catch (err) {
-    audioContext.close().catch((closeErr: unknown) => {
-      if (onWarning) onWarning(`AudioContext.close() failed: ${closeErr instanceof Error ? closeErr.message : String(closeErr)}`);
-    });
+    void closeOwnedAudioContext(audioContext, 'AudioContext.close() failed');
     throw new WorkletError(
       `Failed to construct AudioWorklet node: ${err instanceof Error ? err.message : String(err)}`,
     );
@@ -183,14 +222,12 @@ export async function createStreamDenoiser(
     await initPromise;
   } catch (err) {
     try { source.disconnect(); } catch (e: unknown) {
-      if (onWarning) onWarning(`source.disconnect() failed: ${e instanceof Error ? e.message : String(e)}`);
+      emitWarning(`source.disconnect() failed: ${e instanceof Error ? e.message : String(e)}`);
     }
     try { workletNode.disconnect(); } catch (e: unknown) {
-      if (onWarning) onWarning(`workletNode.disconnect() failed: ${e instanceof Error ? e.message : String(e)}`);
+      emitWarning(`workletNode.disconnect() failed: ${e instanceof Error ? e.message : String(e)}`);
     }
-    audioContext.close().catch((closeErr: unknown) => {
-      if (onWarning) onWarning(`AudioContext.close() failed: ${closeErr instanceof Error ? closeErr.message : String(closeErr)}`);
-    });
+    await closeOwnedAudioContext(audioContext, 'AudioContext.close() failed');
     throw err;
   }
 
@@ -198,14 +235,36 @@ export async function createStreamDenoiser(
   let bypassMode = false;
   let agcMode = false;
   let hpfMode = false;
+  let destroyPromise: Promise<void> | null = null;
 
-  workletNode.port.addEventListener('message', (event: MessageEvent) => {
+  const workletMessageHandler = (event: MessageEvent) => {
     if (event.data?.type === 'process_error' && currentState !== 'destroyed') {
-      if (options?.onWarning) {
-        options.onWarning(`Worklet processing error: ${event.data.message ?? 'Unknown'}`);
-      }
+      emitWarning(`Worklet processing error: ${event.data.message ?? 'Unknown'}`);
+      return;
     }
-  });
+    if (event.data?.type === 'auto_bypass' && currentState !== 'destroyed') {
+      options.onAutoBypass?.(Boolean(event.data.enabled));
+    }
+  };
+
+  const audioContextStateChangeHandler = (): void => {
+    const nextState = audioContext.state;
+    emitWarning(`AudioContext state changed to "${nextState}".`);
+    if (nextState === 'suspended' && currentState !== 'destroyed') {
+      void audioContext.resume().catch((resumeErr) => {
+        emitWarning(
+          `AudioContext.resume() failed after suspension: ${resumeErr instanceof Error ? resumeErr.message : String(resumeErr)}`,
+        );
+      });
+      return;
+    }
+    if (nextState === 'closed') {
+      currentState = 'destroyed';
+    }
+  };
+
+  workletNode.port.addEventListener('message', workletMessageHandler);
+  audioContext.addEventListener('statechange', audioContextStateChangeHandler);
 
   const denoiser: StreamDenoiser = {
     get outputStream(): MediaStream {
@@ -250,39 +309,72 @@ export async function createStreamDenoiser(
     },
 
     destroy(): void {
-      if (currentState === 'destroyed') return;
+      void this.destroyAsync().catch((e) => {
+        emitWarning(`destroyAsync() failed: ${e instanceof Error ? e.message : String(e)}`);
+      });
+    },
 
-      currentState = 'destroyed';
-
-      try { source.disconnect(); } catch (e) {
-        if (onWarning) onWarning(`source.disconnect() failed during destroy: ${e instanceof Error ? e.message : String(e)}`);
+    async destroyAsync(): Promise<void> {
+      if (destroyPromise) {
+        return destroyPromise;
       }
-      try { workletNode.disconnect(); } catch (e) {
-        if (onWarning) onWarning(`workletNode.disconnect() failed during destroy: ${e instanceof Error ? e.message : String(e)}`);
-      }
 
-      const destroyAckTimeout = 2000;
-      const ackPromise = new Promise<void>((resolve) => {
-        const timer = setTimeout(resolve, destroyAckTimeout);
-        const handler = (event: MessageEvent) => {
-          if (event.data?.type === 'destroyed' || event.data?.type === 'error') {
+      destroyPromise = (async () => {
+        currentState = 'destroyed';
+
+        audioContext.removeEventListener('statechange', audioContextStateChangeHandler);
+        workletNode.port.removeEventListener('message', workletMessageHandler);
+
+        try { source.disconnect(); } catch (e) {
+          emitWarning(`source.disconnect() failed during destroy: ${e instanceof Error ? e.message : String(e)}`);
+        }
+        try { workletNode.disconnect(); } catch (e) {
+          emitWarning(`workletNode.disconnect() failed during destroy: ${e instanceof Error ? e.message : String(e)}`);
+        }
+
+        const destroyAckTimeout = 2000;
+        const ackPromise = new Promise<void>((resolve) => {
+          let settled = false;
+          const cleanup = (): void => {
+            if (settled) {
+              return;
+            }
+            settled = true;
             clearTimeout(timer);
             workletNode.port.removeEventListener('message', handler);
+          };
+          const handler = (event: MessageEvent) => {
+            if (event.data?.type === 'destroyed' || event.data?.type === 'error') {
+              cleanup();
+              resolve();
+            }
+          };
+          const timer = setTimeout(() => {
+            cleanup();
             resolve();
-          }
-        };
-        workletNode.port.addEventListener('message', handler);
-      });
-
-      workletNode.port.postMessage({ type: 'destroy' });
-
-      destination.stream.getTracks().forEach((track) => track.stop());
-
-      ackPromise.then(() => {
-        audioContext.close().catch((e) => {
-          if (onWarning) onWarning(`AudioContext.close() failed during destroy: ${e instanceof Error ? e.message : String(e)}`);
+          }, destroyAckTimeout);
+          workletNode.port.addEventListener('message', handler);
         });
-      });
+
+        try {
+          workletNode.port.postMessage({ type: 'destroy' });
+        } catch (e) {
+          emitWarning(`workletNode.port.postMessage() failed during destroy: ${e instanceof Error ? e.message : String(e)}`);
+        }
+
+        destination.stream.getTracks().forEach((track) => {
+          try {
+            track.stop();
+          } catch (e) {
+            emitWarning(`MediaStreamTrack.stop() failed during destroy: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        });
+
+        await ackPromise;
+        await closeOwnedAudioContext(audioContext, 'AudioContext.close() failed during destroy');
+      })();
+
+      return destroyPromise;
     },
 
     getWorkletState(): Promise<WorkletStateResponse> {

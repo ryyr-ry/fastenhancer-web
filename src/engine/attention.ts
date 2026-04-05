@@ -22,6 +22,11 @@ export function multiHeadAttention(
   seqLen: number,
   dim: number,
 ): Float32Array {
+  if (dim % nHeads !== 0) {
+    throw new RangeError(
+      `dim (${dim}) must be divisible by nHeads (${nHeads})`,
+    );
+  }
   const headDim = dim / nHeads;
   const dim3 = dim * 3;
 

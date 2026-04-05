@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 static uint32_t read_u32_le(const uint8_t* p) {
     return ((uint32_t)p[0]) |
@@ -79,9 +80,18 @@ FE_PUBLIC_API FeState* fe_init(int model_size, const uint8_t* weight_data, int w
     {
         float* temp = (float*)malloc((size_t)data_bytes);
         FeState* state;
+        int i;
 
         if (!temp) return NULL;
         decode_f32_le_array(data_ptr, temp, expected_count);
+
+        for (i = 0; i < expected_count; i++) {
+            if (isnan(temp[i]) || isinf(temp[i])) {
+                free(temp);
+                return NULL;
+            }
+        }
+
         state = fe_create(model_size, temp, expected_count);
         free(temp);
         return state;

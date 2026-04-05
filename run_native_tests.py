@@ -41,6 +41,7 @@ TEST_CONFIGS = {
     "test_adversarial": {
         "sources": [
             "src/engine/pipeline.c",
+            "src/engine/exports.c",
             "src/engine/fastenhancer.c",
             "src/engine/common/fft.c",
             "src/engine/common/stft.c",
@@ -63,6 +64,7 @@ TEST_CONFIGS = {
     "test_edge_cases": {
         "sources": [
             "src/engine/pipeline.c",
+            "src/engine/exports.c",
             "src/engine/fastenhancer.c",
             "src/engine/common/fft.c",
             "src/engine/common/stft.c",
@@ -126,6 +128,7 @@ TEST_CONFIGS = {
     "test_inference": {
         "sources": [
             "src/engine/pipeline.c",
+            "src/engine/exports.c",
             "src/engine/fastenhancer.c",
             "src/engine/common/fft.c",
             "src/engine/common/stft.c",
@@ -137,11 +140,23 @@ TEST_CONFIGS = {
         ],
     },
     "test_pipeline": {
-        "sources": ["src/engine/pipeline.c"],
+        "sources": [
+            "src/engine/pipeline.c",
+            "src/engine/exports.c",
+            "src/engine/fastenhancer.c",
+            "src/engine/common/fft.c",
+            "src/engine/common/stft.c",
+            "src/engine/common/conv.c",
+            "src/engine/common/gru.c",
+            "src/engine/common/attention.c",
+            "src/engine/common/activations.c",
+            "src/engine/common/compression.c",
+        ],
     },
     "test_safety": {
         "sources": [
             "src/engine/pipeline.c",
+            "src/engine/exports.c",
             "src/engine/fastenhancer.c",
             "src/engine/common/gru.c",
             "src/engine/common/compression.c",
@@ -155,6 +170,7 @@ TEST_CONFIGS = {
     "test_simd_accuracy": {
         "sources": [
             "src/engine/pipeline.c",
+            "src/engine/exports.c",
             "src/engine/fastenhancer.c",
             "src/engine/common/activations.c",
             "src/engine/common/attention.c",
@@ -172,7 +188,18 @@ TEST_CONFIGS = {
         ],
     },
     "test_weight_load": {
-        "sources": ["src/engine/exports.c"],
+        "sources": [
+            "src/engine/pipeline.c",
+            "src/engine/exports.c",
+            "src/engine/fastenhancer.c",
+            "src/engine/common/fft.c",
+            "src/engine/common/stft.c",
+            "src/engine/common/conv.c",
+            "src/engine/common/gru.c",
+            "src/engine/common/attention.c",
+            "src/engine/common/activations.c",
+            "src/engine/common/compression.c",
+        ],
     },
 }
 
@@ -190,7 +217,8 @@ def build_compile_command(test_name: str) -> List[str]:
         "-O2",
         "-std=c11",
         "-D_CRT_SECURE_NO_WARNINGS",
-        "-D_NORETURN=",  # Work around clang stdnoreturn.h conflict with Windows SDK
+        "-D_NORETURN=",
+        "-DUNITY_NORETURN=__declspec(noreturn)",  # Bypass Unity's stdnoreturn.h include that conflicts with Windows SDK
         f"-I{TESTS_DIR / 'unity'}",
         f"-I{COMMON_DIR}",
         f"-I{SRC_DIR}",

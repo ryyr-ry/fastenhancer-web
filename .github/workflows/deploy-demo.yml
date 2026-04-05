@@ -37,6 +37,12 @@ jobs:
         working-directory: demo
         run: bun install --frozen-lockfile
 
+      - name: Generate embedded assets
+        run: bun run embed
+
+      - name: Build TypeScript
+        run: bun run build:ts
+
       - name: Build demo
         working-directory: demo
         run: bun run build

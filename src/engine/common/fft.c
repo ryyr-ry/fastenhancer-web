@@ -9,6 +9,7 @@
  */
 
 #include "fft.h"
+#include "simd.h"
 #include <math.h>
 #include <stddef.h>
 
@@ -71,7 +72,61 @@ void fe_fft(float* real, float* imag, int n) {
         int tw_stride = MAX_FFT_SIZE / size;
 
         for (int block = 0; block < n; block += size) {
-            for (int j = 0; j < half; j++) {
+            int j = 0;
+            const int half4 = half & ~3;
+
+            if (tw_stride == 1) {
+                /* Last stage: twiddle factors are consecutive — direct SIMD load */
+                for (; j < half4; j += 4) {
+                    int top = block + j;
+                    int bot = top + half;
+                    f32x4 vwr = f32x4_load(twiddle_re_precise + j);
+                    f32x4 vwi = f32x4_load(twiddle_im_precise + j);
+                    f32x4 vtr = f32x4_load(real + top);
+                    f32x4 vti = f32x4_load(imag + top);
+                    f32x4 vbr = f32x4_load(real + bot);
+                    f32x4 vbi = f32x4_load(imag + bot);
+                    f32x4 tr = f32x4_sub(f32x4_mul(vbr, vwr), f32x4_mul(vbi, vwi));
+                    f32x4 ti = f32x4_add(f32x4_mul(vbr, vwi), f32x4_mul(vbi, vwr));
+                    f32x4_store(real + top, f32x4_add(vtr, tr));
+                    f32x4_store(imag + top, f32x4_add(vti, ti));
+                    f32x4_store(real + bot, f32x4_sub(vtr, tr));
+                    f32x4_store(imag + bot, f32x4_sub(vti, ti));
+                }
+            } else if (half4 > 0) {
+                /* Other stages: gather twiddle factors from strided positions */
+                for (; j < half4; j += 4) {
+                    int top = block + j;
+                    int bot = top + half;
+                    int idx = j * tw_stride;
+                    float tw_re_buf[4] = {
+                        twiddle_re_precise[idx],
+                        twiddle_re_precise[idx + tw_stride],
+                        twiddle_re_precise[idx + 2 * tw_stride],
+                        twiddle_re_precise[idx + 3 * tw_stride]
+                    };
+                    float tw_im_buf[4] = {
+                        twiddle_im_precise[idx],
+                        twiddle_im_precise[idx + tw_stride],
+                        twiddle_im_precise[idx + 2 * tw_stride],
+                        twiddle_im_precise[idx + 3 * tw_stride]
+                    };
+                    f32x4 vwr = f32x4_load(tw_re_buf);
+                    f32x4 vwi = f32x4_load(tw_im_buf);
+                    f32x4 vtr = f32x4_load(real + top);
+                    f32x4 vti = f32x4_load(imag + top);
+                    f32x4 vbr = f32x4_load(real + bot);
+                    f32x4 vbi = f32x4_load(imag + bot);
+                    f32x4 tr = f32x4_sub(f32x4_mul(vbr, vwr), f32x4_mul(vbi, vwi));
+                    f32x4 ti = f32x4_add(f32x4_mul(vbr, vwi), f32x4_mul(vbi, vwr));
+                    f32x4_store(real + top, f32x4_add(vtr, tr));
+                    f32x4_store(imag + top, f32x4_add(vti, ti));
+                    f32x4_store(real + bot, f32x4_sub(vtr, tr));
+                    f32x4_store(imag + bot, f32x4_sub(vti, ti));
+                }
+            }
+
+            for (; j < half; j++) {
                 int top = block + j;
                 int bot = top + half;
                 float wr = twiddle_re_precise[j * tw_stride];
@@ -94,15 +149,31 @@ void fe_ifft(float* real, float* imag, int n) {
     if (n <= 0 || n > MAX_FFT_SIZE) return;
     if ((n & (n - 1)) != 0) return;
 
-    /* Conjugate -> FFT -> conjugate -> 1/N scaling */
-    for (int i = 0; i < n; i++) imag[i] = -imag[i];
+    /* Conjugate (SIMD) */
+    {
+        const int n4 = n & ~3;
+        int i = 0;
+        for (; i < n4; i += 4)
+            f32x4_store(imag + i, f32x4_neg(f32x4_load(imag + i)));
+        for (; i < n; i++) imag[i] = -imag[i];
+    }
 
     fe_fft(real, imag, n);
 
-    float inv_n = 1.0f / (float)n;
-    for (int i = 0; i < n; i++) {
-        real[i] *= inv_n;
-        imag[i] = -imag[i] * inv_n;
+    /* Conjugate + 1/N scale (SIMD) */
+    {
+        float inv_n = 1.0f / (float)n;
+        f32x4 vinv = f32x4_splat(inv_n);
+        const int n4 = n & ~3;
+        int i = 0;
+        for (; i < n4; i += 4) {
+            f32x4_store(real + i, f32x4_mul(f32x4_load(real + i), vinv));
+            f32x4_store(imag + i, f32x4_mul(f32x4_neg(f32x4_load(imag + i)), vinv));
+        }
+        for (; i < n; i++) {
+            real[i] *= inv_n;
+            imag[i] = -imag[i] * inv_n;
+        }
     }
 }
 

@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>E2E Denoising Verification</title>
+</head>
+<body>
+  <button id="startBtn">Start Verification</button>
+  <pre id="log"></pre>
+
+  <script type="module">
+    const logEl = document.getElementById('log');
+    const btn = document.getElementById('startBtn');
+
+    function appendLog(msg) {
+      logEl.textContent += msg + '\n';
+      console.log(msg);
+    }
+
+    function sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    function computeRMS(samples) {
+      let sum = 0;
+      for (let i = 0; i < samples.length; i++) {
+        sum += samples[i] * samples[i];
+      }
+      return Math.sqrt(sum / samples.length);
+    }
+
+    function computeCorrelation(a, b) {
+      const len = Math.min(a.length, b.length);
+      if (len === 0) return 0;
+      let meanA = 0, meanB = 0;
+      for (let i = 0; i < len; i++) { meanA += a[i]; meanB += b[i]; }
+      meanA /= len; meanB /= len;
+      let num = 0, denA = 0, denB = 0;
+      for (let i = 0; i < len; i++) {
+        const da = a[i] - meanA;
+        const db = b[i] - meanB;
+        num += da * db;
+        denA += da * da;
+        denB += db * db;
+      }
+      const den = Math.sqrt(denA * denB);
+      return den === 0 ? 0 : num / den;
+    }
+
+    function allFinite(samples) {
+      for (let i = 0; i < samples.length; i++) {
+        if (!isFinite(samples[i])) return false;
+      }
+      return true;
+    }
+
+    function hasNonZero(samples) {
+      for (let i = 0; i < samples.length; i++) {
+        if (samples[i] !== 0) return true;
+      }
+      return false;
+    }
+
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      window.__verifyData = null;
+
+      try {
+        appendLog('[1] Loading WASM and weights...');
+        const [wasmRes, mapRes, weightRes] = await Promise.all([
+          fetch('/dist/wasm/fastenhancer-tiny-simd.wasm'),
+          fetch('/dist/wasm/fastenhancer-tiny-simd-exports.json'),
+          fetch('/weights/fe_tiny_48k.bin'),
+        ]);
+        if (!wasmRes.ok || !mapRes.ok || !weightRes.ok) throw new Error('Fetch failed');
+        const [wasmBytes, exportMap, weightBytes] = await Promise.all([
+          wasmRes.arrayBuffer(),
+          mapRes.json(),
+          weightRes.arrayBuffer(),
+        ]);
+
+        // Generate known white noise input (1.5 seconds at 48kHz)
+        const sampleRate = 48000;
+        const durationSec = 1.5;
+        const numSamples = Math.floor(sampleRate * durationSec);
+
+        const inputCtx = new AudioContext({ sampleRate });
+        if (inputCtx.state === 'suspended') await inputCtx.resume();
+
+        const noiseBuffer = inputCtx.createBuffer(1, numSamples, sampleRate);
+        const noiseData = noiseBuffer.getChannelData(0);
+        let seed = 42;
+        for (let i = 0; i < numSamples; i++) {
+          seed = (seed * 1664525 + 1013904223) & 0xFFFFFFFF;
+          noiseData[i] = ((seed >>> 0) / 0xFFFFFFFF) * 2.0 - 1.0;
+        }
+
+        // Store input for comparison
+        const inputSamples = new Float32Array(noiseData);
+        const inputRMS = computeRMS(inputSamples);
+        appendLog(`[2] Input: ${numSamples} samples, RMS=${inputRMS.toFixed(6)}`);
+
+        // Create input stream from noise buffer
+        const source = inputCtx.createBufferSource();
+        source.buffer = noiseBuffer;
+        const inputDest = inputCtx.createMediaStreamDestination();
+        source.connect(inputDest);
+
+        appendLog('[3] Creating stream denoiser...');
+        const { createStreamDenoiser } = await import('/dist/api/stream-denoiser.js');
+        const denoiser = await createStreamDenoiser({
+          inputStream: inputDest.stream,
+          wasmBytes: wasmBytes.slice(0),
+          weightBytes: weightBytes.slice(0),
+          exportMap,
+          modelSize: 0,
+          workletUrl: '/dist/worklet/processor.js',
+        });
+
+        appendLog('[4] Capturing output audio...');
+
+        // Create a capture context to analyze the output stream
+        const captureCtx = new AudioContext({ sampleRate });
+        if (captureCtx.state === 'suspended') await captureCtx.resume();
+
+        const capturedChunks = [];
+        const outputSource = captureCtx.createMediaStreamSource(denoiser.outputStream);
+
+        // Use ScriptProcessorNode for capturing (deprecated but reliable for testing)
+        const captureNode = captureCtx.createScriptProcessor(4096, 1, 1);
+        captureNode.onaudioprocess = (e) => {
+          const data = e.inputBuffer.getChannelData(0);
+          capturedChunks.push(new Float32Array(data));
+        };
+        outputSource.connect(captureNode);
+        captureNode.connect(captureCtx.destination);
+
+        // Start playing noise
+        source.start();
+
+        // Wait for the audio to finish plus some processing latency
+        await new Promise(resolve => { source.onended = resolve; });
+        await sleep(500);
+
+        // Collect captured output
+        captureNode.onaudioprocess = null;
+        outputSource.disconnect();
+        captureNode.disconnect();
+
+        let totalCaptured = 0;
+        for (const chunk of capturedChunks) totalCaptured += chunk.length;
+        const outputSamples = new Float32Array(totalCaptured);
+        let offset = 0;
+        for (const chunk of capturedChunks) {
+          outputSamples.set(chunk, offset);
+          offset += chunk.length;
+        }
+
+        appendLog(`[5] Captured: ${totalCaptured} samples`);
+
+        // Skip initial silence/latency: skip first 0.1s worth of samples
+        const skipSamples = Math.floor(sampleRate * 0.1);
+        const outputTrimmed = outputSamples.subarray(
+          Math.min(skipSamples, outputSamples.length),
+          outputSamples.length
+        );
+
+        const outputRMS = computeRMS(outputTrimmed);
+        const energyReductionRatio = outputRMS / inputRMS;
+        const outputIsFinite = allFinite(outputTrimmed);
+        const outputHasNonZero = hasNonZero(outputTrimmed);
+
+        // Correlation between trimmed output and corresponding input segment
+        const corrLen = Math.min(outputTrimmed.length, inputSamples.length - skipSamples);
+        const inputSegment = inputSamples.subarray(skipSamples, skipSamples + corrLen);
+        const outputSegment = outputTrimmed.subarray(0, corrLen);
+        const correlation = computeCorrelation(inputSegment, outputSegment);
+
+        appendLog(`[6] Analysis:`);
+        appendLog(`  Input RMS:  ${inputRMS.toFixed(6)}`);
+        appendLog(`  Output RMS: ${outputRMS.toFixed(6)}`);
+        appendLog(`  Energy ratio (output/input): ${energyReductionRatio.toFixed(4)}`);
+        appendLog(`  Correlation: ${correlation.toFixed(4)}`);
+        appendLog(`  Output finite: ${outputIsFinite}`);
+        appendLog(`  Output has non-zero: ${outputHasNonZero}`);
+        appendLog(`  Captured enough: ${totalCaptured > sampleRate * 0.5}`);
+
+        // Verdict
+        const checks = {
+          // Output must have lower energy than input (noise was reduced)
+          energyReduced: energyReductionRatio < 0.85,
+          // Output must not be identical to input (transformation occurred)
+          notIdentity: correlation < 0.95,
+          // Output must be finite (no NaN/Infinity)
+          allFinite: outputIsFinite,
+          // Output must not be all zeros (denoiser produced audio)
+          hasSignal: outputHasNonZero,
+          // Must have captured enough samples
+          enoughSamples: totalCaptured > sampleRate * 0.5,
+        };
+
+        let allPassed = true;
+        for (const [name, passed] of Object.entries(checks)) {
+          appendLog(`  ${passed ? 'OK' : 'FAIL'}: ${name}`);
+          if (!passed) allPassed = false;
+        }
+
+        window.__verifyData = {
+          inputRMS,
+          outputRMS,
+          energyReductionRatio,
+          correlation,
+          outputIsFinite,
+          outputHasNonZero,
+          capturedSamples: totalCaptured,
+          allPassed,
+          checks,
+        };
+
+        // Cleanup
+        denoiser.destroy();
+        await captureCtx.close();
+        await inputCtx.close();
+
+        appendLog(allPassed
+          ? '[PASS] Denoising verification passed!'
+          : '[FAIL] Denoising verification failed');
+
+      } catch (err) {
+        appendLog(`[FAIL] Error: ${err.message}`);
+        console.error(err);
+        window.__verifyData = { error: err.message, allPassed: false };
+      }
+    });
+  </script>
+</body>
+</html>

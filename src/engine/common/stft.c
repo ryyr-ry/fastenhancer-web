@@ -26,6 +26,7 @@
 #endif
 
 int fe_stft_init(FeStftState* state, int n_fft, int hop_size) {
+    if (!state) return -1;
     /* Validation: n_fft > 0, power of two, upper limit, hop=n_fft/2 */
     if (n_fft <= 0 || n_fft > FE_STFT_MAX_FFT) {
         memset(state, 0, sizeof(FeStftState));
@@ -93,6 +94,7 @@ void fe_stft_forward(FeStftState* state, const float* input,
 
 void fe_stft_inverse(FeStftState* state, const float* spec_real,
                      const float* spec_imag, float* output) {
+    if (!state || state->n_fft == 0) return;
     int n_fft = state->n_fft;
     int hop = state->hop_size;
     int bins = state->freq_bins;

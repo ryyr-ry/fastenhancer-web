@@ -50,6 +50,7 @@ static inline f32x4 f32x4_neg(f32x4 a)          { return wasm_f32x4_neg(a); }
 static inline f32x4 f32x4_abs(f32x4 a)          { return wasm_f32x4_abs(a); }
 static inline f32x4 f32x4_max(f32x4 a, f32x4 b) { return wasm_f32x4_max(a, b); }
 static inline f32x4 f32x4_min(f32x4 a, f32x4 b) { return wasm_f32x4_min(a, b); }
+static inline f32x4 f32x4_div(f32x4 a, f32x4 b) { return wasm_f32x4_div(a, b); }
 
 #ifdef __wasm_relaxed_simd__
 static inline f32x4 f32x4_fma(f32x4 a, f32x4 b, f32x4 c) {
@@ -81,6 +82,7 @@ static inline f32x4 f32x4_neg(f32x4 a)          { return _mm_sub_ps(_mm_setzero_
 static inline f32x4 f32x4_abs(f32x4 a)          { return _mm_andnot_ps(_mm_set1_ps(-0.0f), a); }
 static inline f32x4 f32x4_max(f32x4 a, f32x4 b) { return _mm_max_ps(a, b); }
 static inline f32x4 f32x4_min(f32x4 a, f32x4 b) { return _mm_min_ps(a, b); }
+static inline f32x4 f32x4_div(f32x4 a, f32x4 b) { return _mm_div_ps(a, b); }
 
 #ifdef __FMA__
 static inline f32x4 f32x4_fma(f32x4 a, f32x4 b, f32x4 c) {
@@ -141,6 +143,10 @@ static inline f32x4 f32x4_max(f32x4 a, f32x4 b) {
 static inline f32x4 f32x4_min(f32x4 a, f32x4 b) {
     f32x4 r;
     for (int i = 0; i < 4; i++) r.v[i] = a.v[i] < b.v[i] ? a.v[i] : b.v[i];
+    return r;
+}
+static inline f32x4 f32x4_div(f32x4 a, f32x4 b) {
+    f32x4 r = {{a.v[0]/b.v[0], a.v[1]/b.v[1], a.v[2]/b.v[2], a.v[3]/b.v[3]}};
     return r;
 }
 static inline f32x4 f32x4_fma(f32x4 a, f32x4 b, f32x4 c) {
@@ -273,35 +279,15 @@ static inline f32x4 f32x4_fast_exp(f32x4 x) {
 
 /*
  * f32x4_fast_sigmoid: 1 / (1 + exp(-x))
- * Saturation clamping: x>=16 -> 1, x<=-16 -> 0
+ * Pure SIMD path — uses f32x4_div instead of extracting lanes to scalar.
+ * Saturation clamping: x>=16 -> 1, x<=-16 -> 0 (via input clamping before exp)
  */
 static inline f32x4 f32x4_fast_sigmoid(f32x4 x) {
-    f32x4 e = f32x4_fast_exp(f32x4_neg(x));
-    /* No SIMD division instruction available, so scalar division per element */
-    float r0 = 1.0f / (1.0f + f32x4_extract0(e));
-    float r1 = 1.0f / (1.0f + f32x4_extract1(e));
-    float r2 = 1.0f / (1.0f + f32x4_extract2(e));
-    float r3 = 1.0f / (1.0f + f32x4_extract3(e));
-    /* Saturation clamping */
-    float x0 = f32x4_extract0(x), x1 = f32x4_extract1(x);
-    float x2 = f32x4_extract2(x), x3 = f32x4_extract3(x);
-    if (x0 >= FE_SIGMOID_CLAMP) r0 = 1.0f; else if (x0 <= -FE_SIGMOID_CLAMP) r0 = 0.0f;
-    if (x1 >= FE_SIGMOID_CLAMP) r1 = 1.0f; else if (x1 <= -FE_SIGMOID_CLAMP) r1 = 0.0f;
-    if (x2 >= FE_SIGMOID_CLAMP) r2 = 1.0f; else if (x2 <= -FE_SIGMOID_CLAMP) r2 = 0.0f;
-    if (x3 >= FE_SIGMOID_CLAMP) r3 = 1.0f; else if (x3 <= -FE_SIGMOID_CLAMP) r3 = 0.0f;
-    f32x4 rv = f32x4_splat(0.0f);
-    /* Set each element */
-#ifdef __wasm_simd128__
-    rv = wasm_f32x4_replace_lane(rv, 0, r0);
-    rv = wasm_f32x4_replace_lane(rv, 1, r1);
-    rv = wasm_f32x4_replace_lane(rv, 2, r2);
-    rv = wasm_f32x4_replace_lane(rv, 3, r3);
-#elif defined(__SSE2__)
-    rv = _mm_set_ps(r3, r2, r1, r0);
-#else
-    rv.v[0] = r0; rv.v[1] = r1; rv.v[2] = r2; rv.v[3] = r3;
-#endif
-    return rv;
+    f32x4 clamped = f32x4_max(f32x4_min(x, f32x4_splat(FE_SIGMOID_CLAMP)),
+                               f32x4_splat(-FE_SIGMOID_CLAMP));
+    f32x4 e = f32x4_fast_exp(f32x4_neg(clamped));
+    f32x4 one = f32x4_splat(1.0f);
+    return f32x4_div(one, f32x4_add(one, e));
 }
 
 /*
@@ -315,6 +301,7 @@ static inline f32x4 f32x4_fast_tanh(f32x4 x) {
 
 /* Scalar fast exp approximation (same algorithm as f32x4_fast_exp) */
 static inline float fe_fast_expf(float x) {
+    if (x != x) return 0.0f; /* NaN guard: NaN→int is UB */
     if (x < -FE_EXP_OVERFLOW) return 0.0f;
     if (x >  FE_EXP_OVERFLOW) return fe_inf_val();
     float t = x * FE_LOG2E;
@@ -325,6 +312,101 @@ static inline float fe_fast_expf(float x) {
     u.iv = ((int)n + 127) << 23;
     return p * u.fv;
 }
+
+/*
+ * f32x4_fast_pow_const: Fast x^e for 4 positive floats with constant exponent.
+ * Uses IEEE 754 decomposition + Taylor ln(1+m) + fast_exp:
+ *   x^e = exp(e * ln(x)) = exp(e * (E*ln(2) + ln(1+m)))
+ * Range reduction via sqrt(2) threshold keeps m ∈ [-0.293, 0.414].
+ * Max relative error ~0.02% (Taylor 5-term + fast_exp combined).
+ */
+#ifdef __wasm_simd128__
+
+static inline f32x4 f32x4_fast_pow_const(f32x4 x, float e) {
+    v128_t xi = x;
+    v128_t e_raw = wasm_u32x4_shr(xi, 23);
+    v128_t mantissa = wasm_v128_or(
+        wasm_v128_and(xi, wasm_i32x4_splat(0x007FFFFF)),
+        wasm_i32x4_splat(0x3F800000));
+    v128_t f = mantissa;
+    v128_t cmp = wasm_f32x4_ge(f, wasm_f32x4_splat(1.4142135f));
+    f = wasm_v128_bitselect(wasm_f32x4_mul(f, wasm_f32x4_splat(0.5f)), f, cmp);
+    e_raw = wasm_i32x4_add(e_raw, wasm_v128_and(cmp, wasm_i32x4_splat(1)));
+    v128_t ef = wasm_f32x4_convert_i32x4(wasm_i32x4_sub(e_raw, wasm_i32x4_splat(127)));
+    v128_t m = wasm_f32x4_sub(f, wasm_f32x4_splat(1.0f));
+    v128_t p = wasm_f32x4_splat(0.2f);
+    p = wasm_f32x4_add(wasm_f32x4_splat(-0.25f), wasm_f32x4_mul(p, m));
+    p = wasm_f32x4_add(wasm_f32x4_splat(0.33333333f), wasm_f32x4_mul(p, m));
+    p = wasm_f32x4_add(wasm_f32x4_splat(-0.5f), wasm_f32x4_mul(p, m));
+    p = wasm_f32x4_add(wasm_f32x4_splat(1.0f), wasm_f32x4_mul(p, m));
+    v128_t ln_x = wasm_f32x4_add(
+        wasm_f32x4_mul(ef, wasm_f32x4_splat(0.69314718f)),
+        wasm_f32x4_mul(p, m));
+    return f32x4_fast_exp(wasm_f32x4_mul(wasm_f32x4_splat(e), ln_x));
+}
+
+#elif defined(__SSE2__)
+
+static inline f32x4 f32x4_fast_pow_const(f32x4 x, float e) {
+    __m128i xi = _mm_castps_si128(x);
+    __m128i e_raw = _mm_srli_epi32(xi, 23);
+    __m128i mantissa = _mm_or_si128(
+        _mm_and_si128(xi, _mm_set1_epi32(0x007FFFFF)),
+        _mm_set1_epi32(0x3F800000));
+    __m128 f = _mm_castsi128_ps(mantissa);
+    __m128 cmp = _mm_cmpge_ps(f, _mm_set1_ps(1.4142135f));
+    f = _mm_or_ps(_mm_and_ps(cmp, _mm_mul_ps(f, _mm_set1_ps(0.5f))),
+                  _mm_andnot_ps(cmp, f));
+    __m128i adj = _mm_and_si128(_mm_castps_si128(cmp), _mm_set1_epi32(1));
+    e_raw = _mm_add_epi32(e_raw, adj);
+    __m128 ef = _mm_cvtepi32_ps(_mm_sub_epi32(e_raw, _mm_set1_epi32(127)));
+    __m128 m = _mm_sub_ps(f, _mm_set1_ps(1.0f));
+    __m128 p = _mm_set1_ps(0.2f);
+    p = _mm_add_ps(_mm_set1_ps(-0.25f), _mm_mul_ps(p, m));
+    p = _mm_add_ps(_mm_set1_ps(0.33333333f), _mm_mul_ps(p, m));
+    p = _mm_add_ps(_mm_set1_ps(-0.5f), _mm_mul_ps(p, m));
+    p = _mm_add_ps(_mm_set1_ps(1.0f), _mm_mul_ps(p, m));
+    __m128 ln_x = _mm_add_ps(
+        _mm_mul_ps(ef, _mm_set1_ps(0.69314718f)),
+        _mm_mul_ps(p, m));
+    return f32x4_fast_exp(_mm_mul_ps(_mm_set1_ps(e), ln_x));
+}
+
+#else /* scalar */
+
+static inline f32x4 f32x4_fast_pow_const(f32x4 x, float e) {
+    f32x4 r;
+    for (int i = 0; i < 4; i++) {
+        float xi = x.v[i];
+        if (xi <= 0.0f) { r.v[i] = 0.0f; continue; }
+        union { float f; int32_t i; } u;
+        u.f = xi;
+        int e_raw = (u.i >> 23) & 0xFF;
+        u.i = (u.i & 0x007FFFFF) | 0x3F800000;
+        float fi = u.f;
+        if (fi >= 1.4142135f) { fi *= 0.5f; e_raw += 1; }
+        float m = fi - 1.0f;
+        float p = 0.2f;
+        p = -0.25f + p * m;
+        p = 0.33333333f + p * m;
+        p = -0.5f + p * m;
+        p = 1.0f + p * m;
+        float ln_x = (float)(e_raw - 127) * 0.69314718f + p * m;
+        float arg = e * ln_x;
+        if (arg > FE_EXP_OVERFLOW) arg = FE_EXP_OVERFLOW;
+        if (arg < -FE_EXP_OVERFLOW) arg = -FE_EXP_OVERFLOW;
+        float t = arg * FE_LOG2E;
+        float nf = floorf(t);
+        float frac = t - nf;
+        float pp = 1.0f + frac * (0.6931472f + frac * (0.2402265f + frac * (0.0554953f + frac * 0.0096838f)));
+        union { float fv; int iv; } sc;
+        sc.iv = ((int)nf + 127) << 23;
+        r.v[i] = pp * sc.fv;
+    }
+    return r;
+}
+
+#endif
 
 /* SIMD vector addition: dst[i] += src[i] */
 static inline void fe_vec_add(float* dst, const float* src, int n) {

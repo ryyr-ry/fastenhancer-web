@@ -86,30 +86,16 @@ void fe_power_compress_complex(const float* re, const float* im,
         memset(out_im, 0, sizeof(float) * n);
         return;
     }
-    /* mag^(exp-1) = (mag^2)^((exp-1)/2) -> completely eliminates sqrtf */
     float half_scale_exp = (exponent - 1.0f) * 0.5f;
     float mag_floor_sq = MAG_FLOOR * MAG_FLOOR;
     for (int i = 0; i < n; i++) {
         float r = fe_sanitize(re[i]);
-        float m = fe_sanitize(im[i]);
-        /* Overflow prevention: scale very large values before computing mag_sq */
-        float abs_r = r > 0.0f ? r : -r;
-        float abs_m = m > 0.0f ? m : -m;
-        float peak = abs_r > abs_m ? abs_r : abs_m;
-        float mag_sq, scale;
-        if (peak > 1e18f) {
-            float inv = 1.0f / peak;
-            float sr = r * inv, sm = m * inv;
-            mag_sq = sr * sr + sm * sm;
-            if (mag_sq < 1e-30f) mag_sq = 1e-30f;
-            scale = powf(mag_sq, half_scale_exp) * powf(peak, exponent - 1.0f);
-        } else {
-            mag_sq = r * r + m * m;
-            if (mag_sq < mag_floor_sq) mag_sq = mag_floor_sq;
-            scale = powf(mag_sq, half_scale_exp);
-        }
+        float m_v = fe_sanitize(im[i]);
+        float mag_sq = r * r + m_v * m_v;
+        if (mag_sq < mag_floor_sq) mag_sq = mag_floor_sq;
+        float scale = powf(mag_sq, half_scale_exp);
         out_re[i] = r * scale;
-        out_im[i] = m * scale;
+        out_im[i] = m_v * scale;
     }
 }
 
@@ -122,29 +108,16 @@ void fe_power_decompress_complex(const float* re, const float* im,
         memset(out_im, 0, sizeof(float) * n);
         return;
     }
-    /* mag^(1/exp-1) = (mag^2)^((1/exp-1)/2) -> completely eliminates sqrtf */
     float half_scale_exp = (1.0f / exponent - 1.0f) * 0.5f;
     float mag_floor_sq = MAG_FLOOR * MAG_FLOOR;
     for (int i = 0; i < n; i++) {
         float r = fe_sanitize(re[i]);
-        float m = fe_sanitize(im[i]);
-        float abs_r = r > 0.0f ? r : -r;
-        float abs_m = m > 0.0f ? m : -m;
-        float peak = abs_r > abs_m ? abs_r : abs_m;
-        float mag_sq, scale;
-        if (peak > 1e18f) {
-            float inv = 1.0f / peak;
-            float sr = r * inv, sm = m * inv;
-            mag_sq = sr * sr + sm * sm;
-            if (mag_sq < 1e-30f) mag_sq = 1e-30f;
-            scale = powf(mag_sq, half_scale_exp) * powf(peak, 1.0f / exponent - 1.0f);
-        } else {
-            mag_sq = r * r + m * m;
-            if (mag_sq < mag_floor_sq) mag_sq = mag_floor_sq;
-            scale = powf(mag_sq, half_scale_exp);
-        }
+        float m_v = fe_sanitize(im[i]);
+        float mag_sq = r * r + m_v * m_v;
+        if (mag_sq < mag_floor_sq) mag_sq = mag_floor_sq;
+        float scale = powf(mag_sq, half_scale_exp);
         float out_r = r * scale;
-        float out_m = m * scale;
+        float out_m = m_v * scale;
         if (out_r > MAX_MAGNITUDE) out_r = MAX_MAGNITUDE;
         else if (out_r < -MAX_MAGNITUDE) out_r = -MAX_MAGNITUDE;
         if (out_m > MAX_MAGNITUDE) out_m = MAX_MAGNITUDE;

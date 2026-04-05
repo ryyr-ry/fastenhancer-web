@@ -53,7 +53,12 @@ void fe_gru_step(const FeGruWeights* w, const float* input, float* hidden) {
     /* n = tanh(W_n·x + b_in_n + r * (U_n·h + b_hn_n)) */
     memcpy(Uh, w->b_hn_n, sizeof(float) * hs);
     fe_matvec_add(w->U_n, hidden, Uh, hs, hs);
-    for (int i = 0; i < hs; i++) Uh[i] *= r[i];
+    {
+        const int hs4 = hs & ~3;
+        for (int i = 0; i < hs4; i += 4)
+            f32x4_store(Uh + i, f32x4_mul(f32x4_load(Uh + i), f32x4_load(r + i)));
+        for (int i = hs4; i < hs; i++) Uh[i] *= r[i];
+    }
 
     memcpy(n, w->b_in_n, sizeof(float) * hs);
     fe_matvec_add(w->W_n, input, n, hs, is);

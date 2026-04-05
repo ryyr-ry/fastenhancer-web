@@ -1,12 +1,14 @@
 /**
- * loader.ts — Unified resource loader (v2)
+ * loader.ts — Unified resource loader (v2 + embedded)
  *
- * loadModel(modelSize, { baseUrl?, simd? }) fetches the WASM binary (.wasm),
- * weight binary (.bin), and export map (.json) together and returns a LoadedModel
- * with createDenoiser / createStreamDenoiser methods.
+ * loadModel(modelSize, { baseUrl?, simd? }) loads WASM, weights, and export
+ * map, returning a LoadedModel with createDenoiser/createStreamDenoiser.
  *
- * Responsibility: resource fetching, LoadedModel construction, and caching only.
- * It does not perform inference.
+ * Two loading strategies:
+ *   - baseUrl omitted → embedded JS modules (zero-config, works with all bundlers)
+ *   - baseUrl provided → fetch() from URL (CDN / self-hosted deployment)
+ *
+ * Responsibility: resource loading, LoadedModel construction, and caching only.
  */
 
 import { ValidationError, WasmLoadError } from './errors.js';
@@ -19,6 +21,12 @@ import {
   createStreamDenoiser as createStreamDenoiserImpl,
   type StreamDenoiser,
 } from './stream-denoiser.js';
+import type { Denoiser, WasmInstance } from './index.js';
+import {
+  loadEmbeddedWasm,
+  loadEmbeddedWeights,
+  loadEmbeddedExportMap,
+} from './embedded-loader.js';
 
 /** Options passed to loadModel */
 export interface LoadModelOptions {
@@ -47,9 +55,9 @@ export interface LoadedModel {
   /** WASM export name mapping (supports -O3 minified builds) */
   readonly exportMap: Record<string, string>;
   /** Emscripten SINGLE_FILE factory (lazy-loaded) */
-  readonly wasmFactory: () => Promise<any>;
+  readonly wasmFactory: () => Promise<WasmInstance>;
   /** Layer 1: creates a frame-based denoiser */
-  createDenoiser(): Promise<any>;
+  createDenoiser(): Promise<Denoiser>;
   /** Layer 2: creates a real-time stream denoiser through AudioWorklet */
   createStreamDenoiser(
     inputStream: MediaStream,
@@ -75,6 +83,15 @@ function normalizeUrl(base: string): string {
   return base.endsWith('/') ? base : `${base}/`;
 }
 
+function getCacheKey(
+  modelSize: ModelSize,
+  simd: boolean | undefined,
+  baseUrl: string | undefined,
+): string {
+  const normalizedBaseUrl = baseUrl ? normalizeUrl(baseUrl) : undefined;
+  return `${modelSize}:${simd ?? 'auto'}:${normalizedBaseUrl ?? 'default'}`;
+}
+
 async function detectSimd(): Promise<boolean> {
   try {
     return detectSimdSupport();
@@ -92,9 +109,25 @@ async function detectSimd(): Promise<boolean> {
 
 const modelCache = new Map<string, Promise<LoadedModel>>();
 
-/** For tests and resource cleanup: clear the entire cache */
+/**
+ * Clears the entire model cache, allowing all cached resources to be garbage collected.
+ * Call this when you know all denoiser instances from cached models have been destroyed.
+ * Note: Does not destroy active denoiser instances — only removes cache entries.
+ */
 export function clearModelCache(): void {
   modelCache.clear();
+}
+
+/**
+ * Removes a specific model from the cache.
+ * @param modelSize - The model size to evict
+ * @param options - Must match the options used in the original loadModel() call
+ */
+export function clearCachedModel(
+  modelSize: ModelSize,
+  options?: LoadModelOptions,
+): boolean {
+  return modelCache.delete(getCacheKey(modelSize, options?.simd, options?.baseUrl));
 }
 
 /* ================================================================
@@ -123,8 +156,7 @@ export function loadModel(
 
   const simd = options?.simd;
   const baseUrl = options?.baseUrl;
-  const normalizedBaseUrl = baseUrl ? normalizeUrl(baseUrl) : undefined;
-  const cacheKey = `${modelSize}:${simd ?? 'auto'}:${normalizedBaseUrl ?? 'default'}`;
+  const cacheKey = getCacheKey(modelSize, simd, baseUrl);
 
   const cached = modelCache.get(cacheKey);
   if (cached) return cached;
@@ -136,7 +168,7 @@ export function loadModel(
 }
 
 /* ================================================================
- * loadModelImpl — Actual resource fetching
+ * loadModelImpl — Strategy dispatch
  * ================================================================ */
 
 async function loadModelImpl(
@@ -148,18 +180,54 @@ async function loadModelImpl(
     simdOption !== undefined ? simdOption : await detectSimd();
   const variant = selectWasmVariant(simdSupported);
 
-  const wasmBase = baseUrlOption
-    ? normalizeUrl(baseUrlOption)
-    : new URL('../wasm/', import.meta.url).href;
+  if (baseUrlOption) {
+    return loadModelViaFetch(modelSize, variant, baseUrlOption);
+  }
+  return loadModelViaEmbed(modelSize, variant);
+}
 
-  const weightBase = baseUrlOption
-    ? normalizeUrl(baseUrlOption)
-    : new URL('../../weights/', import.meta.url).href;
+/* ================================================================
+ * loadModelViaEmbed — Zero-config path using embedded JS modules
+ * ================================================================ */
 
+async function loadModelViaEmbed(
+  modelSize: ModelSize,
+  variant: WasmVariant,
+): Promise<LoadedModel> {
+  let wasmBytes: ArrayBuffer;
+  let weightData: ArrayBuffer;
+  let exportMap: Record<string, string>;
+
+  try {
+    [wasmBytes, weightData, exportMap] = await Promise.all([
+      loadEmbeddedWasm(modelSize, variant),
+      loadEmbeddedWeights(modelSize),
+      loadEmbeddedExportMap(modelSize, variant),
+    ]);
+  } catch (err) {
+    if (err instanceof ValidationError) throw err;
+    throw new WasmLoadError(
+      `Failed to load embedded model resources: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  return buildLoadedModel(modelSize, variant, wasmBytes, weightData, exportMap);
+}
+
+/* ================================================================
+ * loadModelViaFetch — CDN/self-hosted path using fetch()
+ * ================================================================ */
+
+async function loadModelViaFetch(
+  modelSize: ModelSize,
+  variant: WasmVariant,
+  baseUrlOption: string,
+): Promise<LoadedModel> {
+  const base = normalizeUrl(baseUrlOption);
   const prefix = `fastenhancer-${modelSize}-${variant}`;
-  const wasmBinaryUrl = `${wasmBase}${prefix}.wasm`;
-  const exportMapUrl = `${wasmBase}${prefix}-exports.json`;
-  const weightUrl = `${weightBase}${WEIGHT_FILENAMES[modelSize]}`;
+  const wasmBinaryUrl = `${base}${prefix}.wasm`;
+  const exportMapUrl = `${base}${prefix}-exports.json`;
+  const weightUrl = `${base}${WEIGHT_FILENAMES[modelSize]}`;
 
   let wasmBytes: ArrayBuffer;
   let weightData: ArrayBuffer;
@@ -200,11 +268,32 @@ async function loadModelImpl(
     );
   }
 
+  return buildLoadedModel(modelSize, variant, wasmBytes, weightData, exportMap);
+}
+
+/* ================================================================
+ * buildLoadedModel — Shared LoadedModel construction
+ * ================================================================ */
+
+function buildLoadedModel(
+  modelSize: ModelSize,
+  variant: WasmVariant,
+  wasmBytes: ArrayBuffer,
+  weightData: ArrayBuffer,
+  exportMap: Record<string, string>,
+): LoadedModel {
   const modelSizeId = MODEL_SIZE_IDS[modelSize];
   const modelConfig = getModelConfig(modelSize);
 
-  const wasmFactory = async (): Promise<any> => {
-    return instantiateWasm(wasmBytes, exportMap);
+  let cachedWasmPromise: Promise<WasmInstance> | null = null;
+  const wasmFactory = async (): Promise<WasmInstance> => {
+    if (!cachedWasmPromise) {
+      cachedWasmPromise = instantiateWasm(wasmBytes, exportMap);
+      cachedWasmPromise.catch(() => {
+        cachedWasmPromise = null;
+      });
+    }
+    return cachedWasmPromise;
   };
 
   const frozenExportMap = Object.freeze({ ...exportMap });
@@ -221,7 +310,8 @@ async function loadModelImpl(
     exportMap: frozenExportMap,
     wasmFactory,
 
-    async createDenoiser() {
+    async createDenoiser(): Promise<Denoiser> {
+      // Dynamic import intentionally avoids a runtime circular dependency with index.ts.
       const { createDenoiser: create } = await import('./index.js');
       return create({
         model: {

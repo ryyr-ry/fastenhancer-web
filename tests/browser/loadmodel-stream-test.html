@@ -28,6 +28,20 @@
       try {
         const model = await loadModel('tiny', { baseUrl: '/flat/' });
 
+        // Expose raw data for Playwright evaluate()
+        window.__testData = {
+          size: model.size,
+          sampleRate: model.sampleRate,
+          hopSize: model.hopSize,
+          nFft: model.nFft,
+          wasmBytesLength: model.wasmBytes?.byteLength ?? 0,
+          weightDataLength: model.weightData?.byteLength ?? 0,
+          exportMapKeys: Object.keys(model.exportMap || {}),
+          hasWasmFactory: typeof model.wasmFactory === 'function',
+          hasCreateDenoiser: typeof model.createDenoiser === 'function',
+          hasCreateStreamDenoiser: typeof model.createStreamDenoiser === 'function',
+        };
+
         check('modelSizeTiny', model.size === 'tiny');
         check('sampleRate48k', model.sampleRate === 48000);
         check('hopSize512', model.hopSize === 512);
@@ -54,6 +68,10 @@
         check('outputStreamHasTracks', stream.outputStream.getAudioTracks().length > 0);
         check('stateRunning', stream.state === 'running');
 
+        window.__testData.streamOutputType = stream.outputStream?.constructor?.name;
+        window.__testData.streamTrackCount = stream.outputStream?.getAudioTracks?.()?.length ?? 0;
+        window.__testData.streamState = stream.state;
+
         stream.bypass = true;
         check('bypassOn', stream.bypass === true);
         stream.bypass = false;
@@ -61,6 +79,8 @@
 
         stream.destroy();
         check('stateDestroyed', stream.state === 'destroyed');
+        window.__testData.stateAfterDestroy = stream.state;
+        window.__testData.completed = true;
 
         osc.stop();
       } catch (err) {

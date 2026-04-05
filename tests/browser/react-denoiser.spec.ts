@@ -14,7 +14,7 @@ async function waitForState(page: import('@playwright/test').Page, expectedState
 }
 
 test.describe('useDenoiser React Hook E2E', () => {
-  test('starts in idle and transitions start → processing → stop → idle', async ({ page }) => {
+  test('starts in idle and transitions start → processing → stop → idle', async ({ page, browserName }) => {
     const errors: string[] = [];
     page.on('pageerror', (err) => errors.push(err.message));
 
@@ -31,6 +31,17 @@ test.describe('useDenoiser React Hook E2E', () => {
     await expect(hookEl).toHaveAttribute('data-has-stream', 'false');
     await expect(hookEl).toHaveAttribute('data-bypass', 'false');
 
+    const hasAudioContext = await page.evaluate(() => typeof AudioContext !== 'undefined');
+
+    if (!hasAudioContext) {
+      // Platform lacks AudioContext — verify start attempt doesn't crash
+      await page.click('#btn-start');
+      await page.waitForTimeout(2000);
+      await expect(hookEl).toHaveAttribute('data-state', 'idle');
+      expect(errors).toHaveLength(0);
+      return;
+    }
+
     await page.click('#btn-start');
     await waitForState(page, 'processing');
 
@@ -44,7 +55,10 @@ test.describe('useDenoiser React Hook E2E', () => {
     expect(errors).toHaveLength(0);
   });
 
-  test('reflects bypass toggling in state', async ({ page }) => {
+  test('reflects bypass toggling in state', async ({ page, browserName }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (err) => errors.push(err.message));
+
     await page.goto(`${BASE_URL}/tests/browser/react-test.html`);
     await page.waitForFunction(
       () => document.getElementById('status')?.textContent === 'ready',
@@ -52,6 +66,16 @@ test.describe('useDenoiser React Hook E2E', () => {
     );
 
     const hookEl = page.locator('#hook-state');
+    const hasAudioContext = await page.evaluate(() => typeof AudioContext !== 'undefined');
+
+    if (!hasAudioContext) {
+      // Without AudioContext, start() cannot proceed — verify no crash
+      await page.click('#btn-start');
+      await page.waitForTimeout(2000);
+      await expect(hookEl).toHaveAttribute('data-state', 'idle');
+      expect(errors).toHaveLength(0);
+      return;
+    }
 
     await page.click('#btn-start');
     await waitForState(page, 'processing');
@@ -64,23 +88,43 @@ test.describe('useDenoiser React Hook E2E', () => {
 
     await page.click('#btn-stop');
     await waitForState(page, 'idle');
+
+    expect(errors).toHaveLength(0);
   });
 
-  test('transitions to destroyed state on destroy', async ({ page }) => {
+  test('transitions to destroyed state on destroy', async ({ page, browserName }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (err) => errors.push(err.message));
+
     await page.goto(`${BASE_URL}/tests/browser/react-test.html`);
     await page.waitForFunction(
       () => document.getElementById('status')?.textContent === 'ready',
       { timeout: 10000 }
     );
+
+    const hasAudioContext = await page.evaluate(() => typeof AudioContext !== 'undefined');
+
+    if (!hasAudioContext) {
+      // Verify destroy works from idle when AudioContext is unavailable
+      await page.click('#btn-destroy');
+      await waitForState(page, 'destroyed');
+      expect(errors).toHaveLength(0);
+      return;
+    }
 
     await page.click('#btn-start');
     await waitForState(page, 'processing');
 
     await page.click('#btn-destroy');
     await waitForState(page, 'destroyed');
+
+    expect(errors).toHaveLength(0);
   });
 
-  test('sets state to error when start is called after destroy', async ({ page }) => {
+  test('keeps destroyed state terminal after destroy', async ({ page, browserName }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (err) => errors.push(err.message));
+
     await page.goto(`${BASE_URL}/tests/browser/react-test.html`);
     await page.waitForFunction(
       () => document.getElementById('status')?.textContent === 'ready',
@@ -90,11 +134,18 @@ test.describe('useDenoiser React Hook E2E', () => {
     await page.click('#btn-destroy');
     await waitForState(page, 'destroyed');
 
-    await page.click('#btn-start');
-    await waitForState(page, 'error');
-
     const hookEl = page.locator('#hook-state');
-    const errorMsg = await hookEl.getAttribute('data-error');
-    expect(errorMsg).toContain('destroyed');
+
+    await page.click('#btn-start');
+    await expect(hookEl).toHaveAttribute('data-state', 'destroyed');
+    await expect(hookEl).toHaveAttribute('data-error', '');
+
+    await page.click('#btn-stop');
+    await expect(hookEl).toHaveAttribute('data-state', 'destroyed');
+
+    await page.click('#btn-bypass-on');
+    await expect(hookEl).toHaveAttribute('data-bypass', 'false');
+
+    expect(errors).toHaveLength(0);
   });
 });

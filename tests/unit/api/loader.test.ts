@@ -14,7 +14,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { loadModel } from '../../../src/api/loader.js';
+import { loadModel, clearModelCache, clearCachedModel } from '../../../src/api/loader.js';
 import { ValidationError, WasmLoadError } from '../../../src/api/errors.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..', '..');
@@ -247,6 +247,37 @@ describe('loadModel', () => {
       expect(p1).not.toBe(p3);
       expect(p1).not.toBe(p4);
     });
+
+    it('clearModelCache causes subsequent loadModel to return a new Promise', async () => {
+      const p1 = loadModel('tiny', { baseUrl, simd: true });
+      await p1;
+      clearModelCache();
+      const p2 = loadModel('tiny', { baseUrl, simd: true });
+      expect(p1).not.toBe(p2);
+      await p2;
+    });
+
+    it('clearCachedModel evicts only the specified model', async () => {
+      clearModelCache();
+      const pTiny = loadModel('tiny', { baseUrl, simd: true });
+      const pBase = loadModel('base', { baseUrl, simd: true });
+      await Promise.all([pTiny, pBase]);
+
+      const removed = clearCachedModel('tiny', { baseUrl, simd: true });
+      expect(removed).toBe(true);
+
+      const pTiny2 = loadModel('tiny', { baseUrl, simd: true });
+      expect(pTiny2).not.toBe(pTiny);
+
+      const pBase2 = loadModel('base', { baseUrl, simd: true });
+      expect(pBase2).toBe(pBase);
+    });
+
+    it('clearCachedModel returns false for non-cached model', () => {
+      clearModelCache();
+      const removed = clearCachedModel('small', { baseUrl, simd: true });
+      expect(removed).toBe(false);
+    });
   });
 
   /* ================================================================
@@ -270,6 +301,38 @@ describe('loadModel', () => {
           simd: true,
         }),
       ).rejects.toThrow(WasmLoadError);
+    });
+  });
+
+  /* ================================================================
+   * Embedded path (no baseUrl)
+   * ================================================================ */
+
+  describe('Embedded path (no baseUrl)', () => {
+    it('loadModel without baseUrl uses embedded assets and returns a valid LoadedModel', async () => {
+      const model = await loadModel('tiny', { simd: true });
+
+      expect(model.size).toBe('tiny');
+      expect(model.wasmBytes.byteLength).toBeGreaterThan(0);
+      expect(model.weightData.byteLength).toBeGreaterThan(0);
+      expect(model.exportMap).toHaveProperty('_fe_init');
+
+      const wasmHeader = new Uint8Array(model.wasmBytes, 0, 4);
+      expect(Array.from(wasmHeader)).toEqual([0x00, 0x61, 0x73, 0x6d]);
+
+      const weightHeader = new Uint8Array(model.weightData, 0, 4);
+      expect(Array.from(weightHeader)).toEqual([0x46, 0x45, 0x57, 0x31]);
+    });
+
+    it('embedded path returns same-shaped data as fetch path', async () => {
+      const embedded = await loadModel('tiny', { simd: true });
+      const fetched = await loadModel('tiny', { baseUrl, simd: true });
+
+      expect(embedded.wasmBytes.byteLength).toBe(fetched.wasmBytes.byteLength);
+      expect(embedded.weightData.byteLength).toBe(fetched.weightData.byteLength);
+      expect(Object.keys(embedded.exportMap).sort()).toEqual(
+        Object.keys(fetched.exportMap).sort(),
+      );
     });
   });
 });

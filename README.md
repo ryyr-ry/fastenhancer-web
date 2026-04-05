@@ -20,7 +20,7 @@ Most browser-based noise removal solutions depend on generic inference runtimes.
 - WASM SIMD acceleration with relaxed-simd FMA
 - Zero runtime `malloc` — all memory pre-allocated at initialization
 - No SharedArrayBuffer / COOP / COEP headers required
-- CSP-compatible (no `unsafe-eval`)
+- CSP-compatible — requires only `wasm-unsafe-eval` (no `unsafe-eval`)
 
 ---
 
@@ -122,17 +122,42 @@ const {
 - React 18+ Strict Mode safe (double mount/unmount resilient)
 - Race condition safe (stale start() results are automatically discarded)
 
-### `createDenoiser(options)` — Frame-level Processing API
+### `loadModel(modelSize, options?)` — Model & Resource Loader
+
+```typescript
+import { loadModel } from 'fastenhancer-web';
+
+const model = await loadModel('small');
+// model.createDenoiser()         — Layer 1: frame-level processing
+// model.createStreamDenoiser()   — Layer 2: real-time AudioWorklet stream
+// model.wasmBytes                — raw WASM binary (advanced use)
+// model.weightData               — weight binary (advanced use)
+// model.exportMap                — WASM export name mapping (advanced use)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `modelSize` | `'tiny' \| 'base' \| 'small'` | Model size to use (required) |
+| `options.baseUrl` | `string` | Base URL for resource files (omit for zero-config embedded loading) |
+| `options.simd` | `boolean` | Force SIMD on/off (auto-detected by default) |
+
+Results are cached — calling `loadModel('small')` twice returns the same Promise.
+
+### `createDenoiser(options)` — Frame-level Processing API (Low-level)
 
 ```typescript
 import { createDenoiser } from 'fastenhancer-web';
 ```
 
-### `createStreamDenoiser(options)` — AudioWorklet Integration
+> **Note:** For most use cases, prefer `loadModel('small').then(m => m.createDenoiser())` which handles resource loading automatically. The direct `createDenoiser()` requires manually providing WASM factory and weight data.
+
+### `createStreamDenoiser(options)` — AudioWorklet Integration (Low-level)
 
 ```typescript
 import { createStreamDenoiser } from 'fastenhancer-web';
 ```
+
+> **Note:** For most use cases, prefer `model.createStreamDenoiser(micStream)` via `loadModel()` which handles WASM, weights, and export map automatically. The direct `createStreamDenoiser()` requires manually providing all binary resources.
 
 ### `diagnose()` — Browser Compatibility Check
 
@@ -162,7 +187,7 @@ All errors extend `FastEnhancerError` with a machine-readable `code` property:
 | Class | Code | When |
 |-------|------|------|
 | `WasmLoadError` | `WASM_LOAD_FAILED` | WASM module failed to load |
-| `ModelInitError` | `MODEL_INIT_FAILED` | Model initialization failed (corrupt weights, CRC mismatch) |
+| `ModelInitError` | `MODEL_INIT_FAILED` | Model initialization failed (corrupt weights or incompatible format) |
 | `AudioContextError` | `AUDIO_CONTEXT_ERROR` | AudioContext creation/state error |
 | `WorkletError` | `WORKLET_ERROR` | AudioWorklet registration/communication failure |
 | `ValidationError` | `VALIDATION_ERROR` | Invalid arguments |
@@ -218,10 +243,13 @@ Clean Audio Output (48 kHz)
 ```
 
 **Key design decisions:**
-- `loadModel()` fetches WASM binary (`.wasm`), weights (`.bin`), and export map (`.json`) in parallel
+- `loadModel()` loads WASM binary, weights, and export map automatically — by default via embedded JS modules (`import()`) for zero-config bundler compatibility; when `baseUrl` is provided, falls back to `fetch()`
+- Default worklet loading uses inline Blob URL (no external file dependency); `workletUrl` option available for strict CSP environments that disallow `blob:`
 - AudioWorklet uses raw `WebAssembly.instantiate()` — no Emscripten glue inside the worklet
+- Audio processing is mono-only — stereo inputs are downmixed to the first channel
 - WASM binary is transferred as ArrayBuffer from main thread to worklet via `postMessage`
 - All neural network buffers are pre-allocated at init time (zero runtime malloc)
+- All 3 models (tiny/base/small) and both variants (scalar/SIMD) are embedded in the package (~1.85 MB tarball). This is intentional for zero-config usage — bundlers with tree-shaking will only include the model you actually `import()`. If you need to minimize initial download size, use the `baseUrl` option with `loadModel()` to fetch models on demand from a CDN or your own server
 
 ---
 
@@ -238,7 +266,15 @@ Clean Audio Output (48 kHz)
 - WASM SIMD support (falls back to scalar if unavailable)
 - AudioWorklet support
 - CSP must allow `wasm-unsafe-eval` (for `WebAssembly.instantiate()`)
+- Default worklet loading uses `blob:` URL — if your CSP blocks `blob:`, provide a `workletUrl` option
 - No `SharedArrayBuffer` / `Cross-Origin-Isolation` headers needed
+
+**Required CSP directives:**
+- `script-src`: `'self'` (or wherever your scripts are served from)
+- `script-src` or `worker-src`: `blob:` (for default worklet loading; not needed if using `workletUrl` option)
+- `script-src`: `'wasm-unsafe-eval'` (required for `WebAssembly.instantiate()`)
+
+WASM SIMD sizes above are approximate and depend on whether you count raw `.wasm` bytes or embedded JS wrapper output.
 
 ---
 
@@ -262,7 +298,7 @@ Clean Audio Output (48 kHz)
 # Install dependencies
 bun install
 
-# Run all vitest tests (168 tests: unit + WASM + adversarial)
+# Run all vitest tests (187 tests: unit + WASM + adversarial)
 bun run test
 
 # Build TypeScript
@@ -274,7 +310,7 @@ bun run build:wasm:all
 # Build everything
 bun run build:all
 
-# Run C engine native tests (200 tests, requires gcc/MinGW)
+# Run C engine native tests (201 tests, requires gcc/MinGW)
 # Individual test executables are built and run via build scripts
 ```
 
@@ -282,9 +318,9 @@ bun run build:all
 
 | Suite | Environment | Framework | Tests | Purpose |
 |-------|-------------|-----------|-------|---------|
-| C native | gcc (MinGW) | Unity | 200 | C module correctness |
+| C native | gcc (MinGW) | Unity | 201 | C module correctness |
 | WASM | Emscripten (scalar + SIMD) | vitest | 30 | Emscripten conversion + SIMD correctness |
-| TypeScript unit | Node.js | vitest | 138 | API / worklet / lifecycle correctness |
+| TypeScript unit | Node.js | vitest | 157 | API / worklet / lifecycle correctness |
 | Browser E2E | Chrome + Firefox | Playwright | 30 | AudioWorklet integration |
 
 **Differential debugging:** C↔WASM scalar = Emscripten issue, scalar↔SIMD = SIMD issue, SIMD↔Browser = integration issue.
