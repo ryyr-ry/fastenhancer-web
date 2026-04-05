@@ -10,8 +10,6 @@ param(
 
     [string]$EmccPath,
 
-    [bool]$RelaxedSimd = $true,
-
     [switch]$FastMath,
 
     [switch]$WorkletBuild,
@@ -196,9 +194,6 @@ $arguments += @(
 
 if ($Variant -eq 'simd') {
     $arguments += '-msimd128'
-    if ($RelaxedSimd) {
-        $arguments += '-mrelaxed-simd'
-    }
 }
 
 if ($FastMath) {
@@ -277,9 +272,6 @@ if ($WorkletBuild) {
 
     if ($Variant -eq 'simd') {
         $workletArgs += '-msimd128'
-        if ($RelaxedSimd) {
-            $workletArgs += '-mrelaxed-simd'
-        }
     }
 
     if ($FastMath) {

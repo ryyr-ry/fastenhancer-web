@@ -52,15 +52,9 @@ static inline f32x4 f32x4_max(f32x4 a, f32x4 b) { return wasm_f32x4_max(a, b); }
 static inline f32x4 f32x4_min(f32x4 a, f32x4 b) { return wasm_f32x4_min(a, b); }
 static inline f32x4 f32x4_div(f32x4 a, f32x4 b) { return wasm_f32x4_div(a, b); }
 
-#ifdef __wasm_relaxed_simd__
-static inline f32x4 f32x4_fma(f32x4 a, f32x4 b, f32x4 c) {
-    return wasm_f32x4_relaxed_madd(a, b, c);
-}
-#else
 static inline f32x4 f32x4_fma(f32x4 a, f32x4 b, f32x4 c) {
     return wasm_f32x4_add(wasm_f32x4_mul(a, b), c);
 }
-#endif
 
 static inline float f32x4_extract0(f32x4 v)     { return wasm_f32x4_extract_lane(v, 0); }
 static inline float f32x4_extract1(f32x4 v)     { return wasm_f32x4_extract_lane(v, 1); }
