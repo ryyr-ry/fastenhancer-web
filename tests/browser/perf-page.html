@@ -198,7 +198,6 @@
 
         /* ===== Final result ===== */
         const meanMs = sum / measured;
-        const isRealtimeCandidate = medianMs < budgetMs * 1.5;
 
         // Expose structured perf data for Playwright
         window.__perfData = {
@@ -212,7 +211,6 @@
           dropRate: dropped / measured,
           frameCount: stats.frameCount,
           expectedFrames,
-          isRealtimeCandidate,
           allPassed: allWasmPassed && realtimeOk,
         };
 
