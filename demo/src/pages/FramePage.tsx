@@ -27,9 +27,23 @@ interface FrameRuntime {
 
 const codeExample = `import { loadModel } from 'fastenhancer-web';
 
+// 1. Load the model
 const model = await loadModel('small');
 const denoiser = await model.createDenoiser();
-const output = denoiser.processFrame(inputFloat32);`
+
+// 2. Process audio frame by frame (512 samples = 1 hop)
+const inputFrame = new Float32Array(512); // fill from your audio source
+const outputFrame = denoiser.processFrame(inputFrame);
+
+// 3. Check per-frame performance metrics
+const { avgMs, p99Ms, droppedFrames } = denoiser.performance;
+console.log(\`avg: \${avgMs.toFixed(2)}ms, p99: \${p99Ms.toFixed(2)}ms\`);
+
+// 4. Toggle bypass for A/B comparison
+denoiser.bypass = true;
+
+// 5. Clean up
+denoiser.destroy();`
 
 const EMPTY_STATS: FrameStats = {
   lastMs: 0, avgMs: 0, p99Ms: 0, droppedFrames: 0, totalFrames: 0,

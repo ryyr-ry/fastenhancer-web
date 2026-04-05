@@ -7,13 +7,28 @@ import { getModelOptions, getSampleOptions, type ModelSize, type SampleId } from
 
 const codeExample = `import { useDenoiser } from 'fastenhancer-web/react';
 
-const { outputStream, start, stop, state } = useDenoiser('small');
+function VoiceChat() {
+  const { outputStream, start, stop, state, error } = useDenoiser('small');
 
-// start() acquires mic automatically — no arguments needed
-// start(existingStream) also supported for custom sources
-<button onClick={start}>Start</button>
-<button onClick={stop}>Stop</button>
-{outputStream && <audio autoPlay ref={el => el && (el.srcObject = outputStream)} />}`
+  return (
+    <div>
+      <p>Status: {state}</p>
+      {error && <p>Error: {error.message}</p>}
+
+      <button onClick={start} disabled={state === 'loading'}>
+        {state === 'loading' ? 'Loading...' : 'Start'}
+      </button>
+      <button onClick={stop} disabled={state !== 'processing'}>
+        Stop
+      </button>
+
+      {/* outputStream is a clean MediaStream — attach to <audio> or WebRTC */}
+      {outputStream && (
+        <audio autoPlay ref={el => { if (el) el.srcObject = outputStream; }} />
+      )}
+    </div>
+  );
+}`
 
 export function ReactPage() {
   const t = useT()

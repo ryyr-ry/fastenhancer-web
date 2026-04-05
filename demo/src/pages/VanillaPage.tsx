@@ -17,10 +17,24 @@ import { useDemoInputSource } from '../lib/useDemoInputSource'
 
 const codeExample = `import { loadModel } from 'fastenhancer-web';
 
+// 1. Load the model (cached after first call)
 const model = await loadModel('small');
+
+// 2. Get microphone access
 const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+// 3. Create a stream denoiser — returns a clean MediaStream
 const denoiser = await model.createStreamDenoiser(mic);
-// denoiser.outputStream has the clean audio`
+
+// Attach the clean output to an <audio> element or send via WebRTC
+const audio = document.querySelector('audio');
+audio.srcObject = denoiser.outputStream;
+
+// Toggle bypass to compare raw vs denoised audio
+denoiser.bypass = true;
+
+// Clean up when done
+denoiser.destroy();`
 
 export function VanillaPage() {
   const t = useT()
