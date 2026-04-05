@@ -40,7 +40,7 @@ export function FramePage() {
   const t = useT()
   const input = useDemoInputSource()
   const [modelSize, setModelSize] = useState<ModelSize>('small')
-  const [volume, setVolume] = useState(0.65)
+  const [volume, setVolume] = useState(0.8)
   const [bypass, setBypass] = useState(false)
   const [status, setStatus] = useState<'idle' | 'loading' | 'processing' | 'error'>('idle')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)

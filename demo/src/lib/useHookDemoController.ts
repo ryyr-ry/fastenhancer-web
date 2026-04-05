@@ -38,7 +38,7 @@ export function useHookDemoController(): HookDemoController {
   const [sourceMode, setSourceModeState] = useState<DemoSourceMode>('sample')
   const [sampleId, setSampleIdState] = useState<SampleId>('speech_48k_noisy_10dB.wav')
   const [modelSize, setModelSizeState] = useState<ModelSize>('small')
-  const [volume, setVolume] = useState(0.9)
+  const [volume, setVolume] = useState(0.8)
   const [warning, setWarning] = useState<string | null>(null)
   const [localError, setLocalError] = useState<string | null>(null)
 
