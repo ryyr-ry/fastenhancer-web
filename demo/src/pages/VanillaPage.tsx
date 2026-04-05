@@ -18,8 +18,9 @@ import { useDemoInputSource } from '../lib/useDemoInputSource'
 const codeExample = `import { loadModel } from 'fastenhancer-web';
 
 const model = await loadModel('small');
-const stream = await model.createStreamDenoiser(micStream);
-const cleanAudio = stream.outputStream;`
+const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
+const denoiser = await model.createStreamDenoiser(mic);
+// denoiser.outputStream has the clean audio`
 
 export function VanillaPage() {
   const t = useT()
@@ -127,15 +128,6 @@ export function VanillaPage() {
     [status, stop],
   )
 
-  const requestMic = useCallback(async () => {
-    try {
-      await input.requestMicrophone()
-      setErrorMessage(null)
-    } catch (err) {
-      setErrorMessage(formatDemoError(err, t))
-    }
-  }, [input, t])
-
   const busy = status === 'loading'
   const active = status === 'processing'
   const modelOptions = getModelOptions(t)
@@ -179,7 +171,7 @@ export function VanillaPage() {
             </div>
           </div>
 
-          {input.sourceMode === 'sample' ? (
+          {input.sourceMode === 'sample' && (
             <div className="demo__field">
               <span className="demo__label">{t('common.clip')}</span>
               <select
@@ -192,17 +184,6 @@ export function VanillaPage() {
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
               </select>
-            </div>
-          ) : (
-            <div className="demo__field">
-              <button
-                type="button"
-                className="demo__btn--secondary"
-                disabled={busy}
-                onClick={() => void requestMic()}
-              >
-                {input.microphoneReady ? t('common.micReady') : t('common.enableMic')}
-              </button>
             </div>
           )}
 

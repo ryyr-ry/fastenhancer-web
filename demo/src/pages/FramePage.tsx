@@ -179,15 +179,6 @@ export function FramePage() {
     [status, stopProcessing],
   )
 
-  const requestMic = useCallback(async () => {
-    try {
-      await input.requestMicrophone()
-      setErrorMessage(null)
-    } catch (err) {
-      setErrorMessage(formatDemoError(err, t))
-    }
-  }, [input, t])
-
   const latestCleanupRef = useRef(cleanupRuntime)
   latestCleanupRef.current = cleanupRuntime
   const latestInputRef = useRef(input)
@@ -243,7 +234,7 @@ export function FramePage() {
             </div>
           </div>
 
-          {input.sourceMode === 'sample' ? (
+          {input.sourceMode === 'sample' && (
             <div className="demo__field">
               <span className="demo__label">{t('common.clip')}</span>
               <select
@@ -256,17 +247,6 @@ export function FramePage() {
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
               </select>
-            </div>
-          ) : (
-            <div className="demo__field">
-              <button
-                type="button"
-                className="demo__btn--secondary"
-                disabled={busy}
-                onClick={() => void requestMic()}
-              >
-                {input.microphoneReady ? t('common.micReady') : t('common.enableMic')}
-              </button>
             </div>
           )}
 

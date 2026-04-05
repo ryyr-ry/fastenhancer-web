@@ -7,10 +7,10 @@ import { getModelOptions, getSampleOptions, type ModelSize, type SampleId } from
 
 const codeExample = `import { useDenoiser } from 'fastenhancer-web/react';
 
-const { outputStream, start, stop, state } = useDenoiser('small', {
-  baseUrl: './assets/wasm/',
-  workletUrl: './assets/worklet/processor.js',
-});`
+const { outputStream, start, stop } = useDenoiser('small');
+
+<button onClick={start}>Start</button>
+<button onClick={stop}>Stop</button>`
 
 export function HomePage() {
   const t = useT()
@@ -58,7 +58,7 @@ export function HomePage() {
             </div>
           </div>
 
-          {c.sourceMode === 'sample' ? (
+          {c.sourceMode === 'sample' && (
             <div className="demo__field">
               <span className="demo__label">{t('common.clip')}</span>
               <select
@@ -71,17 +71,6 @@ export function HomePage() {
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
               </select>
-            </div>
-          ) : (
-            <div className="demo__field">
-              <button
-                type="button"
-                className="demo__btn--secondary"
-                disabled={busy}
-                onClick={() => void c.requestMicrophone()}
-              >
-                {c.microphoneReady ? t('common.micReady') : t('common.enableMic')}
-              </button>
             </div>
           )}
 
@@ -146,7 +135,7 @@ export function HomePage() {
 
       <details className="demo__code">
         <summary>{t('common.codeExample')}</summary>
-        <CodeBlock code={codeExample} language="ts" />
+        <CodeBlock code={codeExample} language="tsx" />
       </details>
     </div>
   )

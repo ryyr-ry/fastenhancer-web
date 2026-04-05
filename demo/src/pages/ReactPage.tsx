@@ -7,13 +7,13 @@ import { getModelOptions, getSampleOptions, type ModelSize, type SampleId } from
 
 const codeExample = `import { useDenoiser } from 'fastenhancer-web/react';
 
-const { outputStream, start, stop, state, bypass, setBypass } = useDenoiser('small', {
-  baseUrl: './assets/wasm/',
-  workletUrl: './assets/worklet/processor.js',
-});
+const { outputStream, start, stop, state } = useDenoiser('small');
 
-// start(micStream) → state changes: idle → loading → processing
-// stop()           → state changes: processing → idle`
+// start() acquires mic automatically — no arguments needed
+// start(existingStream) also supported for custom sources
+<button onClick={start}>Start</button>
+<button onClick={stop}>Stop</button>
+{outputStream && <audio autoPlay ref={el => el && (el.srcObject = outputStream)} />}`
 
 export function ReactPage() {
   const t = useT()
@@ -61,7 +61,7 @@ export function ReactPage() {
             </div>
           </div>
 
-          {c.sourceMode === 'sample' ? (
+          {c.sourceMode === 'sample' && (
             <div className="demo__field">
               <span className="demo__label">{t('common.clip')}</span>
               <select
@@ -74,17 +74,6 @@ export function ReactPage() {
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
               </select>
-            </div>
-          ) : (
-            <div className="demo__field">
-              <button
-                type="button"
-                className="demo__btn--secondary"
-                disabled={busy}
-                onClick={() => void c.requestMicrophone()}
-              >
-                {c.microphoneReady ? t('common.micReady') : t('common.enableMic')}
-              </button>
             </div>
           )}
 
@@ -164,7 +153,7 @@ export function ReactPage() {
 
       <details className="demo__code">
         <summary>{t('common.codeExample')}</summary>
-        <CodeBlock code={codeExample} language="ts" />
+        <CodeBlock code={codeExample} language="tsx" />
       </details>
     </div>
   )

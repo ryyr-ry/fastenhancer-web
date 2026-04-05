@@ -42,6 +42,8 @@ export interface UseDenoiserReturn {
   state: UseDenoiserState;
   /** Error information (non-null only in the error state) */
   error: Error | null;
+  /** Input stream being denoised (non-null only while processing) */
+  inputStream: MediaStream | null;
   /** Denoised output stream (non-null only while processing) */
   outputStream: MediaStream | null;
   /** Bypass mode */
@@ -74,6 +76,7 @@ export function useDenoiser(
 ): UseDenoiserReturn {
   const [state, setState] = useState<UseDenoiserState>('idle');
   const [error, setError] = useState<Error | null>(null);
+  const [inputStream, setInputStream] = useState<MediaStream | null>(null);
   const [outputStream, setOutputStream] = useState<MediaStream | null>(null);
   const [bypass, setBypassState] = useState(false);
 
@@ -120,6 +123,7 @@ export function useDenoiser(
     }
     releaseOwnedMicStream();
     if (mountedRef.current) {
+      setInputStream(null);
       setOutputStream(null);
     }
   }, [warn, releaseOwnedMicStream]);
@@ -187,6 +191,7 @@ export function useDenoiser(
 
       streamDenoiserRef.current = sd;
       sd.bypass = bypassRef.current;
+      setInputStream(stream);
       setOutputStream(sd.outputStream);
       setState('processing');
     } catch (err) {
@@ -233,6 +238,7 @@ export function useDenoiser(
   return {
     state,
     error,
+    inputStream,
     outputStream,
     bypass,
     start,

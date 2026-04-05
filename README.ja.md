@@ -94,6 +94,7 @@ import { useDenoiser } from 'fastenhancer-web/react';
 const {
   state,          // 'idle' | 'loading' | 'processing' | 'error' | 'destroyed'
   error,          // Error | null
+  inputStream,    // MediaStream | null
   outputStream,   // MediaStream | null
   bypass,         // boolean
   start,          // (inputStream?: MediaStream) => Promise<void>
