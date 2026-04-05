@@ -34,7 +34,7 @@ npm install fastenhancer-web
 
 ## Quick Start
 
-### Layer 3: React Hook (1 line)
+### Layer 3: React Hook
 
 ```tsx
 import { useDenoiser } from 'fastenhancer-web/react';
@@ -42,15 +42,10 @@ import { useDenoiser } from 'fastenhancer-web/react';
 function CallScreen() {
   const { outputStream, start, stop, state } = useDenoiser('small');
 
-  const handleStart = async () => {
-    const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
-    await start(mic);
-  };
-
   return (
     <div>
-      <button onClick={handleStart} disabled={state === 'processing'}>
-        Start Noise Removal
+      <button onClick={start} disabled={state === 'loading'}>
+        {state === 'processing' ? 'Denoising...' : 'Start Noise Removal'}
       </button>
       <button onClick={stop} disabled={state !== 'processing'}>
         Stop
@@ -101,7 +96,7 @@ const {
   error,          // Error | null
   outputStream,   // MediaStream | null
   bypass,         // boolean
-  start,          // (inputStream: MediaStream) => Promise<void>
+  start,          // (inputStream?: MediaStream) => Promise<void>
   stop,           // () => void
   setBypass,      // (enabled: boolean) => void
   destroy,        // () => void
@@ -114,10 +109,14 @@ const {
 | `options.baseUrl` | `string` | Base URL for WASM/weight files |
 | `options.simd` | `boolean` | Force SIMD on/off (auto-detected by default) |
 | `options.workletUrl` | `string` | Custom AudioWorklet processor URL |
+| `options.audioConstraints` | `MediaTrackConstraints` | Custom constraints for auto-getUserMedia |
 | `options.onWarning` | `(msg: string) => void` | Warning callback |
 | `options.onError` | `(err: Error) => void` | Error callback |
 
 **Features:**
+- `start()` with no arguments automatically acquires microphone via getUserMedia
+- `start(stream)` uses an existing MediaStream (WebRTC, custom constraints, etc.)
+- Automatic mic release on stop/destroy/unmount (only for hook-acquired streams)
 - Automatic cleanup on unmount
 - React 18+ Strict Mode safe (double mount/unmount resilient)
 - Race condition safe (stale start() results are automatically discarded)

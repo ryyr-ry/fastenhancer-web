@@ -1,11 +1,12 @@
 /**
  * useDenoiser — React Hook for real-time noise removal (Layer 3)
  *
- * Responsibility: only manages the React lifecycle and the denoising stream connection.
- * Delegate resource loading to loadModel and AudioWorklet processing to createStreamDenoiser.
+ * Responsibility: manages the React lifecycle and the denoising stream connection.
+ * Delegates resource loading to loadModel and AudioWorklet processing to createStreamDenoiser.
  *
- * v2: wasmBytes/weightBytes/exportMap are unnecessary.
- * loadModel automatically fetches the resources and passes them to createStreamDenoiser.
+ * start() with no arguments automatically acquires the microphone via getUserMedia.
+ * start(existingStream) uses the provided MediaStream instead.
+ * The hook owns and releases internally-acquired mic streams on stop/destroy/unmount.
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react';
@@ -28,6 +29,8 @@ export interface UseDenoiserOptions {
   simd?: boolean;
   /** AudioWorklet JS file URL */
   workletUrl?: string;
+  /** Audio constraints passed to getUserMedia when start() is called without arguments */
+  audioConstraints?: MediaTrackConstraints;
   /** Warning callback */
   onWarning?: (message: string) => void;
   /** Error callback */
@@ -43,8 +46,8 @@ export interface UseDenoiserReturn {
   outputStream: MediaStream | null;
   /** Bypass mode */
   bypass: boolean;
-  /** Start denoising */
-  start: (inputStream: MediaStream) => Promise<void>;
+  /** Start denoising — call with no args to auto-acquire mic, or pass your own MediaStream */
+  start: (inputStream?: MediaStream) => Promise<void>;
   /** Stop denoising and return to the idle state */
   stop: () => void;
   /** Set bypass mode */
@@ -58,12 +61,11 @@ export interface UseDenoiserReturn {
  *
  * @example
  * ```tsx
- * const { outputStream, start, stop, state } = useDenoiser('tiny');
+ * const { outputStream, start, stop, state } = useDenoiser('small');
  *
- * const handleStart = async () => {
- *   const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
- *   await start(mic);
- * };
+ * <button onClick={start}>Start</button>
+ * <button onClick={stop}>Stop</button>
+ * {outputStream && <audio autoPlay ref={el => el && (el.srcObject = outputStream)} />}
  * ```
  */
 export function useDenoiser(
@@ -76,6 +78,7 @@ export function useDenoiser(
   const [bypass, setBypassState] = useState(false);
 
   const streamDenoiserRef = useRef<StreamDenoiser | null>(null);
+  const ownedMicStreamRef = useRef<MediaStream | null>(null);
   const mountedRef = useRef(true);
   const destroyedRef = useRef(false);
   const requestIdRef = useRef(0);
@@ -96,6 +99,16 @@ export function useDenoiser(
     console.warn(message);
   }, []);
 
+  const releaseOwnedMicStream = useCallback(() => {
+    const mic = ownedMicStreamRef.current;
+    if (mic) {
+      for (const track of mic.getTracks()) {
+        track.stop();
+      }
+      ownedMicStreamRef.current = null;
+    }
+  }, []);
+
   const cleanupStreamDenoiser = useCallback(() => {
     requestIdRef.current++;
     const sd = streamDenoiserRef.current;
@@ -105,12 +118,13 @@ export function useDenoiser(
       }
       streamDenoiserRef.current = null;
     }
+    releaseOwnedMicStream();
     if (mountedRef.current) {
       setOutputStream(null);
     }
-  }, [warn]);
+  }, [warn, releaseOwnedMicStream]);
 
-  const start = useCallback(async (inputStream: MediaStream) => {
+  const start = useCallback(async (inputStream?: MediaStream) => {
     if (destroyedRef.current || !mountedRef.current) {
       return;
     }
@@ -121,6 +135,25 @@ export function useDenoiser(
     setError(null);
 
     try {
+      let stream: MediaStream;
+      if (inputStream) {
+        stream = inputStream;
+      } else {
+        const constraints = optionsRef.current?.audioConstraints;
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: constraints ?? true,
+        });
+        ownedMicStreamRef.current = stream;
+      }
+
+      if (destroyedRef.current || !mountedRef.current || requestIdRef.current !== thisRequestId) {
+        if (!inputStream) {
+          for (const track of stream.getTracks()) track.stop();
+          ownedMicStreamRef.current = null;
+        }
+        return;
+      }
+
       const opts = optionsRef.current;
 
       const model: LoadedModel = await loadModel(modelSizeRef.current, {
@@ -129,10 +162,14 @@ export function useDenoiser(
       });
 
       if (destroyedRef.current || !mountedRef.current || requestIdRef.current !== thisRequestId) {
+        if (!inputStream) {
+          for (const track of stream.getTracks()) track.stop();
+          ownedMicStreamRef.current = null;
+        }
         return;
       }
 
-      const sd = await model.createStreamDenoiser(inputStream, {
+      const sd = await model.createStreamDenoiser(stream, {
         workletUrl: opts?.workletUrl,
         onWarning: opts?.onWarning,
       });
@@ -140,6 +177,10 @@ export function useDenoiser(
       if (destroyedRef.current || !mountedRef.current || requestIdRef.current !== thisRequestId) {
         try { sd.destroy(); } catch (e) {
           warn(`useDenoiser destroy failed during race-condition cleanup: ${e instanceof Error ? e.message : String(e)}`);
+        }
+        if (!inputStream) {
+          for (const track of stream.getTracks()) track.stop();
+          ownedMicStreamRef.current = null;
         }
         return;
       }
@@ -150,12 +191,13 @@ export function useDenoiser(
       setState('processing');
     } catch (err) {
       if (requestIdRef.current !== thisRequestId) return;
+      releaseOwnedMicStream();
       const e = err instanceof Error ? err : new Error(String(err));
       setError(e);
       setState('error');
       optionsRef.current?.onError?.(e);
     }
-  }, [cleanupStreamDenoiser, warn]);
+  }, [cleanupStreamDenoiser, warn, releaseOwnedMicStream]);
 
   const stop = useCallback(() => {
     if (destroyedRef.current || !mountedRef.current) return;

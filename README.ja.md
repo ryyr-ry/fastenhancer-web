@@ -34,7 +34,7 @@ npm install fastenhancer-web
 
 ## クイックスタート
 
-### Layer 3: React Hook（1 行）
+### Layer 3: React Hook
 
 ```tsx
 import { useDenoiser } from 'fastenhancer-web/react';
@@ -42,15 +42,10 @@ import { useDenoiser } from 'fastenhancer-web/react';
 function CallScreen() {
   const { outputStream, start, stop, state } = useDenoiser('small');
 
-  const handleStart = async () => {
-    const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
-    await start(mic);
-  };
-
   return (
     <div>
-      <button onClick={handleStart} disabled={state === 'processing'}>
-        ノイズ除去開始
+      <button onClick={start} disabled={state === 'loading'}>
+        {state === 'processing' ? 'ノイズ除去中...' : 'ノイズ除去開始'}
       </button>
       <button onClick={stop} disabled={state !== 'processing'}>
         停止
@@ -101,7 +96,7 @@ const {
   error,          // Error | null
   outputStream,   // MediaStream | null
   bypass,         // boolean
-  start,          // (inputStream: MediaStream) => Promise<void>
+  start,          // (inputStream?: MediaStream) => Promise<void>
   stop,           // () => void
   setBypass,      // (enabled: boolean) => void
   destroy,        // () => void
@@ -114,10 +109,14 @@ const {
 | `options.baseUrl` | `string` | WASM/重みファイルのベース URL |
 | `options.simd` | `boolean` | SIMD の有効/無効を明示指定（デフォルトは自動検出） |
 | `options.workletUrl` | `string` | カスタム AudioWorklet processor の URL |
+| `options.audioConstraints` | `MediaTrackConstraints` | 自動 getUserMedia 時のオーディオ制約 |
 | `options.onWarning` | `(msg: string) => void` | 警告コールバック |
 | `options.onError` | `(err: Error) => void` | エラーコールバック |
 
 **主な特性:**
+- `start()` 引数なしでマイクを自動取得（getUserMedia を内部で呼び出し）
+- `start(stream)` で既存の MediaStream を使用（WebRTC、カスタム制約など）
+- Hook が取得したマイクは stop/destroy/アンマウント時に自動解放
 - アンマウント時の自動クリーンアップ
 - React 18+ の Strict Mode での安全な利用（二重 mount / unmount への耐性）
 - race condition への強さと古い `start()` 結果の自動破棄
