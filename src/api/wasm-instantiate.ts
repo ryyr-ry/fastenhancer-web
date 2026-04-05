@@ -82,7 +82,9 @@ export async function instantiateWasm(
     }
   }
   if (unknownImports.length > 0 && typeof console !== 'undefined') {
-    console.warn(`[fastenhancer] Unknown WASM imports stubbed: ${unknownImports.join(', ')}`);
+    console.warn(
+      `[fastenhancer] Unknown WASM imports stubbed: ${unknownImports.join(', ')}`,
+    );
   }
 
   let instance: WebAssembly.Instance;

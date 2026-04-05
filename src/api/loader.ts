@@ -32,8 +32,8 @@ import {
 export interface LoadModelOptions {
   /**
    * Base URL for all resource files.
-   * If omitted: automatically detected from import.meta.url.
-   * If provided: assumes WASM/weights/exportMap exist under this URL.
+   * If omitted: uses embedded JS modules (bundled assets loaded via dynamic import).
+   * If provided: fetches WASM/weights/exportMap from this URL via fetch().
    */
   baseUrl?: string;
   /** Explicitly specify SIMD usage. If omitted, it is auto-detected. */

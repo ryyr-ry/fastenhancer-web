@@ -177,6 +177,25 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
       const needed = WebAssembly.Module.imports(module);
       const importObject = {};
       const ABORT_IMPORT_NAMES = new Set(['abort', 'c', '__assert_fail', '__cxa_throw']);
+      const KNOWN_SAFE_STUBS = new Set([
+        'emscripten_notify_memory_growth',
+        'emscripten_resize_heap',
+        '__cxa_atexit',
+        '__syscall_openat',
+        '__syscall_fcntl64',
+        '__syscall_ioctl',
+        'fd_write',
+        'fd_read',
+        'fd_close',
+        'fd_seek',
+        'environ_sizes_get',
+        'environ_get',
+        'proc_exit',
+        'clock_time_get',
+        'args_sizes_get',
+        'args_get',
+      ]);
+      const unknownImports = [];
       for (const imp of needed) {
         if (!importObject[imp.module]) importObject[imp.module] = {};
         if (imp.kind === 'function') {
@@ -184,9 +203,21 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
             importObject[imp.module][imp.name] = (...args) => {
               throw new Error(`WASM fatal: ${imp.name}(${args.join(', ')})`);
             };
-          } else {
+          } else if (KNOWN_SAFE_STUBS.has(imp.name)) {
             importObject[imp.module][imp.name] = () => 0;
+          } else {
+            unknownImports.push(`${imp.module}.${imp.name}`);
           }
+        }
+      }
+      if (unknownImports.length > 0) {
+        console.warn(
+          `[fastenhancer] Unknown WASM imports stubbed: ${unknownImports.join(', ')}. ` +
+          'Update KNOWN_SAFE_STUBS if these are safe to stub.'
+        );
+        for (const name of unknownImports) {
+          const [mod, fn] = name.split('.');
+          importObject[mod][fn] = () => 0;
         }
       }
 
