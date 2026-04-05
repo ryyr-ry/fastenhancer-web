@@ -1,141 +1,109 @@
+import { Link } from 'react-router-dom'
 import { CodeBlock } from '../components/CodeBlock'
-import { StatusBadge } from '../components/StatusBadge'
-import { WaveformCanvas } from '../components/WaveformCanvas'
 import { useT, renderCode } from '../i18n'
-import { useHookDemoController } from '../lib/useHookDemoController'
-import { getModelOptions, getSampleOptions, type ModelSize, type SampleId } from '../lib/demo-media'
 
-const codeExample = `import { useDenoiser } from 'fastenhancer-web/react';
+const quickStart = `import { useDenoiser } from 'fastenhancer-web/react';
 
-const { outputStream, start, stop } = useDenoiser('small');
+function App() {
+  const { outputStream, start, stop } = useDenoiser('small');
+  return (
+    <>
+      <button onClick={start}>Start</button>
+      <button onClick={stop}>Stop</button>
+      {outputStream && <audio autoPlay ref={el => el && (el.srcObject = outputStream)} />}
+    </>
+  );
+}`
 
-<button onClick={start}>Start</button>
-<button onClick={stop}>Stop</button>`
+interface DemoCardProps {
+  to: string
+  layer: string
+  title: string
+  description: string
+  api: string
+}
+
+function DemoCard({ to, layer, title, description, api }: DemoCardProps) {
+  return (
+    <Link to={to} className="landing__card">
+      <span className="landing__card-layer">{layer}</span>
+      <h3 className="landing__card-title">{title}</h3>
+      <p className="landing__card-desc">{description}</p>
+      <code className="landing__card-api">{api}</code>
+    </Link>
+  )
+}
 
 export function HomePage() {
   const t = useT()
-  const c = useHookDemoController()
-  const busy = c.state === 'loading'
-  const active = c.state === 'processing'
-  const modelOptions = getModelOptions(t)
-  const sampleOptions = getSampleOptions(t)
 
   return (
-    <div className="demo">
-      <header className="demo__header">
-        <div>
-          <span className="demo__tag">{t('home.tag')}</span>
-          <h1 className="demo__title">{t('home.title')}</h1>
-          <p className="demo__subtitle">{renderCode(t('home.subtitle'))}</p>
-        </div>
-        <StatusBadge status={c.state} />
+    <div className="landing">
+      <header className="landing__hero">
+        <h1 className="landing__title">{t('home.title')}</h1>
+        <p className="landing__subtitle">{renderCode(t('home.subtitle'))}</p>
       </header>
 
-      {c.errorMessage && <div className="demo__alert demo__alert--error">{c.errorMessage}</div>}
-      {c.warning && <div className="demo__alert demo__alert--warn">{c.warning}</div>}
-
-      <div className="demo__controls">
-        <div className="demo__row">
-          <div className="demo__field">
-            <span className="demo__label">{t('common.source')}</span>
-            <div className="seg" role="tablist">
-              <button
-                type="button"
-                className={`seg__btn${c.sourceMode === 'sample' ? ' seg__btn--on' : ''}`}
-                disabled={busy}
-                onClick={() => void c.setSourceMode('sample')}
-              >
-                {t('common.sample')}
-              </button>
-              <button
-                type="button"
-                className={`seg__btn${c.sourceMode === 'microphone' ? ' seg__btn--on' : ''}`}
-                disabled={busy}
-                onClick={() => void c.setSourceMode('microphone')}
-              >
-                {t('common.mic')}
-              </button>
-            </div>
-          </div>
-
-          {c.sourceMode === 'sample' && (
-            <div className="demo__field">
-              <span className="demo__label">{t('common.clip')}</span>
-              <select
-                className="demo__select"
-                value={c.sampleId}
-                disabled={busy}
-                onChange={(e) => void c.setSampleId(e.target.value as SampleId)}
-              >
-                {sampleOptions.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          <div className="demo__field">
-            <span className="demo__label">{t('common.model')}</span>
-            <select
-              className="demo__select"
-              value={c.modelSize}
-              disabled={busy}
-              onChange={(e) => void c.setModelSize(e.target.value as ModelSize)}
-            >
-              {modelOptions.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-          </div>
+      <div className="landing__stats">
+        <div className="landing__stat">
+          <span className="landing__stat-value">~1.8 MB</span>
+          <span className="landing__stat-label">{t('home.statBundle')}</span>
         </div>
-
-        <div className="demo__actions">
-          <button
-            type="button"
-            className="demo__btn demo__btn--start"
-            disabled={busy || active}
-            onClick={() => void c.startProcessing()}
-          >
-            {busy ? t('common.loading') : t('common.start')}
-          </button>
-          <button
-            type="button"
-            className="demo__btn demo__btn--stop"
-            disabled={!active}
-            onClick={() => void c.stopProcessing()}
-          >
-            {t('common.stop')}
-          </button>
-          <label className="demo__toggle">
-            <input
-              type="checkbox"
-              checked={c.bypass}
-              onChange={(e) => c.setBypass(e.target.checked)}
-            />
-            {t('common.bypass')}
-          </label>
-          <label className="demo__volume">
-            {t('common.vol')}
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              value={c.volume}
-              onChange={(e) => c.setVolume(Number(e.target.value))}
-            />
-          </label>
+        <div className="landing__stat">
+          <span className="landing__stat-value">48 kHz</span>
+          <span className="landing__stat-label">{t('home.statSampleRate')}</span>
+        </div>
+        <div className="landing__stat">
+          <span className="landing__stat-value">WASM SIMD</span>
+          <span className="landing__stat-label">{t('home.statEngine')}</span>
+        </div>
+        <div className="landing__stat">
+          <span className="landing__stat-value">3 {t('home.statModelsUnit')}</span>
+          <span className="landing__stat-label">{t('home.statModels')}</span>
         </div>
       </div>
 
-      <div className="demo__waves">
-        <WaveformCanvas audioSource={c.inputStream} label={t('common.inputNoisy')} />
-        <WaveformCanvas audioSource={c.outputStream} label={t('common.outputClean')} />
-      </div>
+      <section className="landing__features">
+        <h2 className="landing__section-title">{t('home.featuresTitle')}</h2>
+        <ul className="landing__feature-list">
+          <li>{renderCode(t('home.feature1'))}</li>
+          <li>{renderCode(t('home.feature2'))}</li>
+          <li>{renderCode(t('home.feature3'))}</li>
+          <li>{renderCode(t('home.feature4'))}</li>
+          <li>{renderCode(t('home.feature5'))}</li>
+        </ul>
+      </section>
+
+      <section className="landing__demos">
+        <h2 className="landing__section-title">{t('home.demosTitle')}</h2>
+        <div className="landing__cards">
+          <DemoCard
+            to="/react"
+            layer="Layer 3"
+            title={t('react.title')}
+            description={t('home.demoReactDesc')}
+            api="useDenoiser()"
+          />
+          <DemoCard
+            to="/vanilla"
+            layer="Layer 2"
+            title={t('vanilla.title')}
+            description={t('home.demoVanillaDesc')}
+            api="createStreamDenoiser()"
+          />
+          <DemoCard
+            to="/frame"
+            layer="Layer 1"
+            title={t('frame.title')}
+            description={t('home.demoFrameDesc')}
+            api="processFrame()"
+          />
+        </div>
+      </section>
 
       <details className="demo__code">
-        <summary>{t('common.codeExample')}</summary>
-        <CodeBlock code={codeExample} language="tsx" />
+        <summary>{t('home.quickStart')}</summary>
+        <CodeBlock code={quickStart} language="tsx" />
       </details>
     </div>
   )
