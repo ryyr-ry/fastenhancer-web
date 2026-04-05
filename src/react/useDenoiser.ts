@@ -229,6 +229,7 @@ export function useDenoiser(
   }, [cleanupStreamDenoiser]);
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       cleanupStreamDenoiser();
