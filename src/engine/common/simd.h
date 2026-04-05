@@ -173,12 +173,49 @@ static inline float f32x4_hmax(f32x4 v) {
 
 /*
  * SIMD matrix-vector product: out[i] += sum_j(mat[i*cols+j] * vec[j])
- * Processes 4 columns at a time; remainder handled with scalar operations.
+ * Processes 4 rows at a time to reuse vec loads, 4 columns at a time via SIMD.
+ * All GRU dimensions (36, 48, 80) are divisible by 4, so remainder loops
+ * are present only for correctness with arbitrary sizes.
  */
 static inline void fe_matvec_add(const float* mat, const float* vec,
                                   float* out, int rows, int cols) {
     const int cols4 = cols & ~3;
-    for (int i = 0; i < rows; i++) {
+    const int rows4 = rows & ~3;
+
+    for (int i = 0; i < rows4; i += 4) {
+        const float* row0 = mat + (i + 0) * cols;
+        const float* row1 = mat + (i + 1) * cols;
+        const float* row2 = mat + (i + 2) * cols;
+        const float* row3 = mat + (i + 3) * cols;
+        f32x4 acc0 = f32x4_splat(0.0f);
+        f32x4 acc1 = f32x4_splat(0.0f);
+        f32x4 acc2 = f32x4_splat(0.0f);
+        f32x4 acc3 = f32x4_splat(0.0f);
+        for (int j = 0; j < cols4; j += 4) {
+            f32x4 v = f32x4_load(vec + j);
+            acc0 = f32x4_fma(f32x4_load(row0 + j), v, acc0);
+            acc1 = f32x4_fma(f32x4_load(row1 + j), v, acc1);
+            acc2 = f32x4_fma(f32x4_load(row2 + j), v, acc2);
+            acc3 = f32x4_fma(f32x4_load(row3 + j), v, acc3);
+        }
+        float sum0 = f32x4_hsum(acc0);
+        float sum1 = f32x4_hsum(acc1);
+        float sum2 = f32x4_hsum(acc2);
+        float sum3 = f32x4_hsum(acc3);
+        for (int j = cols4; j < cols; j++) {
+            float vj = vec[j];
+            sum0 += row0[j] * vj;
+            sum1 += row1[j] * vj;
+            sum2 += row2[j] * vj;
+            sum3 += row3[j] * vj;
+        }
+        out[i + 0] += sum0;
+        out[i + 1] += sum1;
+        out[i + 2] += sum2;
+        out[i + 3] += sum3;
+    }
+
+    for (int i = rows4; i < rows; i++) {
         const float* row = mat + i * cols;
         f32x4 acc = f32x4_splat(0.0f);
         for (int j = 0; j < cols4; j += 4) {
