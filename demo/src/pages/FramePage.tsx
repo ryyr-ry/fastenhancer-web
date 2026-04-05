@@ -52,6 +52,8 @@ export function FramePage() {
   const runtimeRef = useRef<FrameRuntime | null>(null)
   const bypassRef = useRef(bypass)
   const tickRef = useRef(0)
+  const pendingStatsRef = useRef<FrameStats | null>(null)
+  const rafIdRef = useRef(0)
 
   useEffect(() => {
     bypassRef.current = bypass
@@ -65,6 +67,9 @@ export function FramePage() {
   }, [volume])
 
   const cleanupRuntime = useCallback(async () => {
+    cancelAnimationFrame(rafIdRef.current)
+    rafIdRef.current = 0
+    pendingStatsRef.current = null
     if (!runtimeRef.current) {
       setInputNode(null)
       setOutputNode(null)
@@ -111,34 +116,48 @@ export function FramePage() {
       const gainNode = audioContext.createGain()
       gainNode.gain.value = volume
 
+      // Pre-allocate reusable buffer to avoid per-frame GC pressure
+      const reusableInput = new Float32Array(model.hopSize)
+
       processorNode.onaudioprocess = (event) => {
-        const inputBuf = new Float32Array(event.inputBuffer.getChannelData(0))
+        const inputChannel = event.inputBuffer.getChannelData(0)
         const outputChannel = event.outputBuffer.getChannelData(0)
         try {
           const t0 = performance.now()
           denoiser.bypass = bypassRef.current
-          const outputBuf = denoiser.processFrame(inputBuf)
+          reusableInput.set(inputChannel)
+          const outputBuf = denoiser.processFrame(reusableInput)
           outputChannel.set(outputBuf)
           const elapsed = performance.now() - t0
           const now = performance.now()
-          if (now - tickRef.current > 80) {
+          if (now - tickRef.current > 200) {
             tickRef.current = now
             const perf = denoiser.performance
-            setStats({
+            pendingStatsRef.current = {
               lastMs: elapsed,
               avgMs: perf.avgMs,
               p99Ms: perf.p99Ms,
               droppedFrames: perf.droppedFrames,
               totalFrames: perf.totalFrames,
-              inputPreview: Array.from(inputBuf.subarray(0, 12)).map((v) => Number(v.toFixed(4))),
+              inputPreview: Array.from(inputChannel.subarray(0, 12)).map((v) => Number(v.toFixed(4))),
               outputPreview: Array.from(outputBuf.subarray(0, 12)).map((v) => Number((v as number).toFixed(4))),
-            })
+            }
           }
         } catch (err) {
           outputChannel.fill(0)
           setWarning(formatDemoError(err, t))
         }
       }
+
+      // Flush stats on rAF to keep onaudioprocess free of React state updates
+      const flushStats = () => {
+        if (pendingStatsRef.current) {
+          setStats(pendingStatsRef.current)
+          pendingStatsRef.current = null
+        }
+        rafIdRef.current = requestAnimationFrame(flushStats)
+      }
+      rafIdRef.current = requestAnimationFrame(flushStats)
 
       sourceNode.connect(processorNode)
       processorNode.connect(gainNode)
