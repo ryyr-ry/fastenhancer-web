@@ -16,6 +16,23 @@ export function conv1d(
 ): Float32Array {
   if (stride <= 0) return new Float32Array(0);
 
+  if (input.length < inChannels * inLen) {
+    throw new RangeError(
+      `input length (${input.length}) must be >= inChannels*inLen (${inChannels * inLen})`,
+    );
+  }
+  const expectedWeight = outChannels * inChannels * kernelSize;
+  if (weight.length < expectedWeight) {
+    throw new RangeError(
+      `weight length (${weight.length}) must be >= outChannels*inChannels*kernelSize (${expectedWeight})`,
+    );
+  }
+  if (bias && bias.length < outChannels) {
+    throw new RangeError(
+      `bias length (${bias.length}) must be >= outChannels (${outChannels})`,
+    );
+  }
+
   const outLen = Math.floor((inLen + 2 * padding - kernelSize) / stride) + 1;
   if (outLen <= 0) return new Float32Array(0);
 
@@ -82,6 +99,23 @@ export function convTranspose1d(
   padding: number,
 ): Float32Array {
   if (stride <= 0) return new Float32Array(0);
+
+  if (input.length < inChannels * inLen) {
+    throw new RangeError(
+      `input length (${input.length}) must be >= inChannels*inLen (${inChannels * inLen})`,
+    );
+  }
+  const expectedWeight = inChannels * outChannels * kernelSize;
+  if (weight.length < expectedWeight) {
+    throw new RangeError(
+      `weight length (${weight.length}) must be >= inChannels*outChannels*kernelSize (${expectedWeight})`,
+    );
+  }
+  if (bias && bias.length < outChannels) {
+    throw new RangeError(
+      `bias length (${bias.length}) must be >= outChannels (${outChannels})`,
+    );
+  }
 
   const fullLen = (inLen - 1) * stride + kernelSize;
   const outLen = fullLen - 2 * padding;

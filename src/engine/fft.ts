@@ -70,6 +70,9 @@ export function fft(realIn: Float32Array, imagIn: Float32Array): FftResult {
  */
 export function ifft(realIn: Float32Array, imagIn: Float32Array): FftResult {
   const n = realIn.length;
+  if (imagIn.length !== n) {
+    throw new Error(`realIn and imagIn must have the same length (got ${n} and ${imagIn.length})`);
+  }
 
   const conjImag = new Float32Array(n);
   for (let i = 0; i < n; i++) conjImag[i] = -imagIn[i];

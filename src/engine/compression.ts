@@ -84,8 +84,12 @@ export function applyComplexMask(
   maskRe: number,
   maskIm: number,
 ): ComplexResult {
+  const sInRe = sanitize(inRe);
+  const sInIm = sanitize(inIm);
+  const sMaskRe = sanitize(maskRe);
+  const sMaskIm = sanitize(maskIm);
   return {
-    real: inRe * maskRe - inIm * maskIm,
-    imag: inRe * maskIm + inIm * maskRe,
+    real: clampSigned(sInRe * sMaskRe - sInIm * sMaskIm),
+    imag: clampSigned(sInRe * sMaskIm + sInIm * sMaskRe),
   };
 }

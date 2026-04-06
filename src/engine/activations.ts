@@ -40,6 +40,9 @@ export function polynomialSigmoid(x: number): number {
 const FE_EXP_OVERFLOW = 88.0;
 const FE_LOG2E = 1.4426950408889634;
 
+const _expBuffer = new ArrayBuffer(4);
+const _expView = new DataView(_expBuffer);
+
 function fastExp(x: number): number {
   if (x !== x) return 0.0;
   if (x < -FE_EXP_OVERFLOW) return 0.0;
@@ -50,8 +53,6 @@ function fastExp(x: number): number {
   const f = t - n;
   const p = 1.0 + f * (0.6931472 + f * (0.2402265 + f * (0.0554953 + f * 0.0096838)));
 
-  const buffer = new ArrayBuffer(4);
-  const view = new DataView(buffer);
-  view.setInt32(0, (n + 127) << 23, true);
-  return p * view.getFloat32(0, true);
+  _expView.setInt32(0, (n + 127) << 23, true);
+  return p * _expView.getFloat32(0, true);
 }

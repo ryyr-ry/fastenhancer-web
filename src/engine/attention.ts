@@ -27,8 +27,33 @@ export function multiHeadAttention(
       `dim (${dim}) must be divisible by nHeads (${nHeads})`,
     );
   }
-  const headDim = dim / nHeads;
+  if (input.length < seqLen * dim) {
+    throw new RangeError(
+      `input length (${input.length}) must be >= seqLen*dim (${seqLen * dim})`,
+    );
+  }
   const dim3 = dim * 3;
+  if (weights.W_qkv.length < dim * dim3) {
+    throw new RangeError(
+      `W_qkv length (${weights.W_qkv.length}) must be >= dim*3*dim (${dim * dim3})`,
+    );
+  }
+  if (weights.b_qkv.length < dim3) {
+    throw new RangeError(
+      `b_qkv length (${weights.b_qkv.length}) must be >= 3*dim (${dim3})`,
+    );
+  }
+  if (weights.W_out.length < dim * dim) {
+    throw new RangeError(
+      `W_out length (${weights.W_out.length}) must be >= dim*dim (${dim * dim})`,
+    );
+  }
+  if (weights.b_out.length < dim) {
+    throw new RangeError(
+      `b_out length (${weights.b_out.length}) must be >= dim (${dim})`,
+    );
+  }
+  const headDim = dim / nHeads;
 
   // QKV projection: [seqLen, dim] × [dim, 3*dim] + bias → [seqLen, 3*dim]
   const qkv = new Float32Array(seqLen * dim3);
