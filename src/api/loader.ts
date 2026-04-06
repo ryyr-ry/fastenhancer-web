@@ -68,6 +68,7 @@ export interface LoadedModel {
       onWarning?: (message: string) => void;
       audioContext?: AudioContext;
       onAutoBypass?: (enabled: boolean) => void;
+      onDestroy?: () => void;
     },
   ): Promise<StreamDenoiser>;
 }
@@ -370,6 +371,7 @@ function buildLoadedModel(
         onWarning?: (message: string) => void;
         audioContext?: AudioContext;
         onAutoBypass?: (enabled: boolean) => void;
+        onDestroy?: () => void;
       },
     ): Promise<StreamDenoiser> {
       return createStreamDenoiserImpl({
@@ -382,6 +384,7 @@ function buildLoadedModel(
         onWarning: opts?.onWarning,
         audioContext: opts?.audioContext,
         onAutoBypass: opts?.onAutoBypass,
+        onDestroy: opts?.onDestroy,
       });
     },
   };

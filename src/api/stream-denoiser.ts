@@ -42,6 +42,8 @@ export interface StreamDenoiserOptions {
   onWarning?: (message: string) => void;
   /** Auto-bypass state callback */
   onAutoBypass?: (enabled: boolean) => void;
+  /** Called when the denoiser is unexpectedly destroyed (e.g., AudioContext closed externally) */
+  onDestroy?: () => void;
 }
 
 /** Return type of createStreamDenoiser */
@@ -292,6 +294,11 @@ export async function createStreamDenoiser(
     }
     if (nextState === 'closed') {
       currentState = 'destroyed';
+      try {
+        options.onDestroy?.();
+      } catch (_) {
+        // User callback error must not propagate
+      }
     }
   };
 

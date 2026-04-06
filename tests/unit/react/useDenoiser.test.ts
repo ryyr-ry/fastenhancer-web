@@ -130,10 +130,10 @@ describe('useDenoiser', () => {
         await result.current.start(createMockMediaStream());
       });
 
-      expect(mockLoadModel).toHaveBeenCalledWith('base', {
+      expect(mockLoadModel).toHaveBeenCalledWith('base', expect.objectContaining({
         baseUrl: '/assets/',
         simd: true,
-      });
+      }));
     });
   });
 

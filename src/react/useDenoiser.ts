@@ -82,6 +82,7 @@ export function useDenoiser(
 
   const streamDenoiserRef = useRef<StreamDenoiser | null>(null);
   const ownedMicStreamRef = useRef<MediaStream | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(true);
   const destroyedRef = useRef(false);
   const requestIdRef = useRef(0);
@@ -114,6 +115,11 @@ export function useDenoiser(
 
   const cleanupStreamDenoiser = useCallback(() => {
     requestIdRef.current++;
+    const ac = abortControllerRef.current;
+    if (ac) {
+      ac.abort();
+      abortControllerRef.current = null;
+    }
     const sd = streamDenoiserRef.current;
     if (sd) {
       try { sd.destroy(); } catch (e) {
@@ -135,6 +141,8 @@ export function useDenoiser(
 
     cleanupStreamDenoiser();
     const thisRequestId = requestIdRef.current;
+    const ac = new AbortController();
+    abortControllerRef.current = ac;
     setState('loading');
     setError(null);
 
@@ -163,6 +171,7 @@ export function useDenoiser(
       const model: LoadedModel = await loadModel(modelSizeRef.current, {
         baseUrl: opts?.baseUrl,
         simd: opts?.simd,
+        signal: ac.signal,
       });
 
       if (destroyedRef.current || !mountedRef.current || requestIdRef.current !== thisRequestId) {
@@ -175,7 +184,16 @@ export function useDenoiser(
 
       const sd = await model.createStreamDenoiser(stream, {
         workletUrl: opts?.workletUrl,
-        onWarning: opts?.onWarning,
+        onWarning: (msg: string) => optionsRef.current?.onWarning?.(msg),
+        onDestroy: () => {
+          if (mountedRef.current && !destroyedRef.current) {
+            streamDenoiserRef.current = null;
+            releaseOwnedMicStream();
+            setInputStream(null);
+            setOutputStream(null);
+            setState('destroyed');
+          }
+        },
       });
 
       if (destroyedRef.current || !mountedRef.current || requestIdRef.current !== thisRequestId) {
@@ -196,6 +214,7 @@ export function useDenoiser(
       setState('processing');
     } catch (err) {
       if (requestIdRef.current !== thisRequestId) return;
+      if (ac.signal.aborted) return;
       releaseOwnedMicStream();
       const e = err instanceof Error ? err : new Error(String(err));
       setError(e);
