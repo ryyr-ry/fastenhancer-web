@@ -48,6 +48,11 @@ function resolveModelSizeId(model: Model, explicitId?: number): number {
   return id;
 }
 
+/**
+ * Windowed performance statistics over the most recent N frames (default: 2000).
+ * Values are rolling — they reflect recent performance, not lifetime totals.
+ * `totalFrames` is the lifetime count; all timing stats are windowed.
+ */
 export interface PerformanceStats {
   avgMs: number;
   p99Ms: number;

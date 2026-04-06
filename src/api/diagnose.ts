@@ -43,7 +43,10 @@ export async function diagnose(): Promise<DiagnoseResult> {
     issues.push('AudioContext is not available. A browser with Web Audio API support is required.');
   }
 
-  const audioWorklet = typeof AudioWorkletNode !== 'undefined';
+  const audioWorklet =
+    typeof AudioWorkletNode !== 'undefined' &&
+    typeof AudioContext !== 'undefined' &&
+    'audioWorklet' in AudioContext.prototype;
   if (!audioWorklet) {
     issues.push('AudioWorklet is not available. Chrome 66+, Firefox 76+, or Safari 14.1+ is required.');
   }

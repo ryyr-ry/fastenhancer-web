@@ -31,6 +31,8 @@ npm install fastenhancer-web
 ```
 
 > **Note:** This package is **ESM-only**. It requires a bundler (Vite, esbuild, webpack 5+) or a runtime that supports ES modules (Node.js 18+ with `"type": "module"`). CommonJS `require()` is not supported.
+>
+> **TypeScript users:** This package uses `"moduleResolution": "bundler"` in its `tsconfig.json`. If your project uses `"node16"` or `"nodenext"` module resolution, you may need to add explicit `.js` extensions to imports or set `"moduleResolution": "bundler"` in your own `tsconfig.json`.
 
 ---
 
@@ -324,8 +326,6 @@ bun run build:all
 | WASM | Emscripten (scalar + SIMD) | vitest | 30 | Emscripten conversion + SIMD correctness |
 | TypeScript unit | Node.js | vitest | 157 | API / worklet / lifecycle correctness |
 | Browser E2E | Chrome + Firefox | Playwright | 30 | AudioWorklet integration |
-
-**Differential debugging:** C↔WASM scalar = Emscripten issue, scalar↔SIMD = SIMD issue, SIMD↔Browser = integration issue.
 
 ---
 

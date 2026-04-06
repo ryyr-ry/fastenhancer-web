@@ -136,9 +136,9 @@ async function detectSimd(): Promise<boolean> {
 const modelCache = new Map<string, Promise<LoadedModel>>();
 
 /**
- * Clears the entire model cache, allowing all cached resources to be garbage collected.
- * Call this when you know all denoiser instances from cached models have been destroyed.
- * Note: Does not destroy active denoiser instances — only removes cache entries.
+ * Clears the entire model cache and revokes the cached processor.js Blob URL.
+ * Does not destroy active denoiser instances — only removes cache entries.
+ * After calling this, the next loadModel() call will re-fetch or re-decode all assets.
  */
 export function clearModelCache(): void {
   modelCache.clear();
@@ -345,6 +345,8 @@ function buildLoadedModel(
     hopSize: modelConfig.hopSize,
     nFft: modelConfig.nFft,
     modelSizeId,
+    // Defensive copy: each getter call returns a new ArrayBuffer copy.
+    // Use sparingly — prefer storing the result if multiple accesses are needed.
     get wasmBytes() { return wasmBytes.slice(0); },
     get weightData() { return weightData.slice(0); },
     exportMap: frozenExportMap,

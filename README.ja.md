@@ -30,6 +30,10 @@
 npm install fastenhancer-web
 ```
 
+> **注意:** このパッケージは **ESM専用** です。バンドラー（Vite, esbuild, webpack 5+）またはESモジュール対応ランタイム（Node.js 18+ `"type": "module"`）が必要です。CommonJS `require()` はサポートされていません。
+>
+> **TypeScript利用者向け:** このパッケージは `"moduleResolution": "bundler"` を使用しています。プロジェクトで `"node16"` や `"nodenext"` を使用している場合、インポートに明示的な `.js` 拡張子を追加するか、`tsconfig.json` で `"moduleResolution": "bundler"` を設定してください。
+
 ---
 
 ## クイックスタート
@@ -315,8 +319,6 @@ bun run build:all
 | WASM | Emscripten (scalar + SIMD) | vitest | 30 | Emscripten 変換 + SIMD 正当性 |
 | TypeScript unit | Node.js | vitest | 157 | API / worklet / ライフサイクルの正しさ |
 | Browser E2E | Chrome + Firefox | Playwright | 30 | AudioWorklet 統合 |
-
-**差分で見るデバッグ指針:** C↔WASM scalar は Emscripten の問題、scalar↔SIMD は SIMD の問題、SIMD↔Browser は統合部分の問題を疑うと切り分けやすくなります。
 
 ---
 
