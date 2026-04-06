@@ -50,8 +50,10 @@ export interface StreamDenoiser {
   readonly outputStream: MediaStream;
   /** Current state */
   readonly state: StreamDenoiserState;
-  /** Bypass mode */
+  /** User-set bypass mode (does not reflect auto-passthrough) */
   bypass: boolean;
+  /** Whether the worklet auto-bypassed due to processing errors */
+  readonly autoPassthrough: boolean;
   /** AGC enabled/disabled */
   agcEnabled: boolean;
   /** HPF enabled/disabled */
@@ -257,6 +259,7 @@ export async function createStreamDenoiser(
 
   let currentState: StreamDenoiserState = 'running';
   let bypassMode = false;
+  let autoPassthroughMode = false;
   let agcMode = false;
   let hpfMode = false;
   let destroyPromise: Promise<void> | null = null;
@@ -267,8 +270,9 @@ export async function createStreamDenoiser(
       return;
     }
     if (event.data?.type === 'auto_bypass' && currentState !== 'destroyed') {
+      autoPassthroughMode = Boolean(event.data.enabled);
       try {
-        options.onAutoBypass?.(Boolean(event.data.enabled));
+        options.onAutoBypass?.(autoPassthroughMode);
       } catch (_) {
         // User callback error must not propagate into worklet message handler
       }
@@ -312,6 +316,10 @@ export async function createStreamDenoiser(
       }
       bypassMode = value;
       workletNode.port.postMessage({ type: 'set_bypass', enabled: value });
+    },
+
+    get autoPassthrough(): boolean {
+      return autoPassthroughMode;
     },
 
     get agcEnabled(): boolean {

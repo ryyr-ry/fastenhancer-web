@@ -1,7 +1,7 @@
 export class FastEnhancerError extends Error {
   readonly code: string;
 
-  constructor(message: string, options?: { cause?: Error }) {
+  constructor(message: string, options?: { cause?: unknown }) {
     super(message, options);
     this.name = 'FastEnhancerError';
     this.code = 'FAST_ENHANCER_ERROR';
@@ -12,7 +12,7 @@ export class FastEnhancerError extends Error {
 export class WasmLoadError extends FastEnhancerError {
   override readonly code = 'WASM_LOAD_FAILED';
 
-  constructor(message: string, options?: { cause?: Error }) {
+  constructor(message: string, options?: { cause?: unknown }) {
     super(message, options);
     this.name = 'WasmLoadError';
   }
@@ -21,7 +21,7 @@ export class WasmLoadError extends FastEnhancerError {
 export class ModelInitError extends FastEnhancerError {
   override readonly code = 'MODEL_INIT_FAILED';
 
-  constructor(message: string, options?: { cause?: Error }) {
+  constructor(message: string, options?: { cause?: unknown }) {
     super(message, options);
     this.name = 'ModelInitError';
   }
@@ -30,7 +30,7 @@ export class ModelInitError extends FastEnhancerError {
 export class AudioContextError extends FastEnhancerError {
   override readonly code = 'AUDIO_CONTEXT_ERROR';
 
-  constructor(message: string, options?: { cause?: Error }) {
+  constructor(message: string, options?: { cause?: unknown }) {
     super(message, options);
     this.name = 'AudioContextError';
   }
@@ -39,7 +39,7 @@ export class AudioContextError extends FastEnhancerError {
 export class WorkletError extends FastEnhancerError {
   override readonly code = 'WORKLET_ERROR';
 
-  constructor(message: string, options?: { cause?: Error }) {
+  constructor(message: string, options?: { cause?: unknown }) {
     super(message, options);
     this.name = 'WorkletError';
   }
@@ -48,7 +48,7 @@ export class WorkletError extends FastEnhancerError {
 export class ValidationError extends FastEnhancerError {
   override readonly code = 'VALIDATION_ERROR';
 
-  constructor(message: string, options?: { cause?: Error }) {
+  constructor(message: string, options?: { cause?: unknown }) {
     super(message, options);
     this.name = 'ValidationError';
   }
@@ -57,7 +57,7 @@ export class ValidationError extends FastEnhancerError {
 export class DestroyedError extends FastEnhancerError {
   override readonly code = 'DESTROYED_ERROR';
 
-  constructor(message: string, options?: { cause?: Error }) {
+  constructor(message: string, options?: { cause?: unknown }) {
     super(message, options);
     this.name = 'DestroyedError';
   }

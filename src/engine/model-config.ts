@@ -24,43 +24,43 @@ const COMMON = {
   stride: 4,
 } as const;
 
-export const MODEL_CONFIGS: Record<ModelSize, ModelConfig> = {
-  tiny: {
+export const MODEL_CONFIGS: Readonly<Record<ModelSize, Readonly<ModelConfig>>> = Object.freeze({
+  tiny: Object.freeze({
     ...COMMON,
     channels: 24,
     hopSize: 512,
     rfBlocks: 2,
-    kernelSize: [8, 3, 3],
+    kernelSize: Object.freeze([8, 3, 3]) as readonly number[] as number[],
     C2: 20,
     F2: 24,
     headDim: 5,
     encoderBlocks: 2,
-  },
-  base: {
+  }),
+  base: Object.freeze({
     ...COMMON,
     channels: 48,
     hopSize: 512,
     rfBlocks: 3,
-    kernelSize: [8, 3, 3],
+    kernelSize: Object.freeze([8, 3, 3]) as readonly number[] as number[],
     C2: 36,
     F2: 36,
     headDim: 9,
     encoderBlocks: 2,
-  },
-  small: {
+  }),
+  small: Object.freeze({
     ...COMMON,
     channels: 64,
     hopSize: 512,
     rfBlocks: 3,
-    kernelSize: [8, 3, 3, 3],
+    kernelSize: Object.freeze([8, 3, 3, 3]) as readonly number[] as number[],
     C2: 48,
     F2: 48,
     headDim: 12,
     encoderBlocks: 3,
-  },
-};
+  }),
+});
 
-export function getModelConfig(size: ModelSize): ModelConfig {
+export function getModelConfig(size: ModelSize): Readonly<ModelConfig> {
   const config = MODEL_CONFIGS[size];
   if (!config) {
     throw new Error(`Unknown model size: '${size}'`);

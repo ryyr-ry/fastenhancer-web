@@ -38,6 +38,8 @@ export interface LoadModelOptions {
   baseUrl?: string;
   /** Explicitly specify SIMD usage. If omitted, it is auto-detected. */
   simd?: boolean;
+  /** AbortSignal for cancelling in-flight resource loading */
+  signal?: AbortSignal;
 }
 
 /** Return type of loadModel. Provides createDenoiser / createStreamDenoiser methods. */
@@ -61,7 +63,12 @@ export interface LoadedModel {
   /** Layer 2: creates a real-time stream denoiser through AudioWorklet */
   createStreamDenoiser(
     inputStream: MediaStream,
-    options?: { workletUrl?: string; onWarning?: (message: string) => void },
+    options?: {
+      workletUrl?: string;
+      onWarning?: (message: string) => void;
+      audioContext?: AudioContext;
+      onAutoBypass?: (enabled: boolean) => void;
+    },
   ): Promise<StreamDenoiser>;
 }
 
@@ -78,6 +85,23 @@ const WEIGHT_FILENAMES: Record<ModelSize, string> = {
   base: 'fe_base_48k.bin',
   small: 'fe_small_48k.bin',
 };
+
+function validateExportMap(data: unknown): Record<string, string> {
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) {
+    throw new WasmLoadError(
+      'Export map JSON must be a plain object',
+    );
+  }
+  const obj = data as Record<string, unknown>;
+  for (const [key, value] of Object.entries(obj)) {
+    if (typeof value !== 'string') {
+      throw new WasmLoadError(
+        `Export map entry "${key}" must be a string, got ${typeof value}`,
+      );
+    }
+  }
+  return obj as Record<string, string>;
+}
 
 function normalizeUrl(base: string): string {
   return base.endsWith('/') ? base : `${base}/`;
@@ -154,6 +178,11 @@ export function loadModel(
     );
   }
 
+  const signal = options?.signal;
+  if (signal?.aborted) {
+    return Promise.reject(signal.reason ?? new Error('Aborted'));
+  }
+
   const simd = options?.simd;
   const baseUrl = options?.baseUrl;
   const cacheKey = getCacheKey(modelSize, simd, baseUrl);
@@ -161,7 +190,7 @@ export function loadModel(
   const cached = modelCache.get(cacheKey);
   if (cached) return cached;
 
-  const promise = loadModelImpl(modelSize, simd, baseUrl);
+  const promise = loadModelImpl(modelSize, simd, baseUrl, signal);
   modelCache.set(cacheKey, promise);
   promise.catch(() => modelCache.delete(cacheKey));
   return promise;
@@ -175,15 +204,16 @@ async function loadModelImpl(
   modelSize: ModelSize,
   simdOption: boolean | undefined,
   baseUrlOption: string | undefined,
+  signal: AbortSignal | undefined,
 ): Promise<LoadedModel> {
   const simdSupported =
     simdOption !== undefined ? simdOption : await detectSimd();
   const variant = selectWasmVariant(simdSupported);
 
   if (baseUrlOption) {
-    return loadModelViaFetch(modelSize, variant, baseUrlOption);
+    return loadModelViaFetch(modelSize, variant, baseUrlOption, signal);
   }
-  return loadModelViaEmbed(modelSize, variant);
+  return loadModelViaEmbed(modelSize, variant, signal);
 }
 
 /* ================================================================
@@ -193,6 +223,7 @@ async function loadModelImpl(
 async function loadModelViaEmbed(
   modelSize: ModelSize,
   variant: WasmVariant,
+  signal: AbortSignal | undefined,
 ): Promise<LoadedModel> {
   let wasmBytes: ArrayBuffer;
   let weightData: ArrayBuffer;
@@ -211,6 +242,10 @@ async function loadModelViaEmbed(
     );
   }
 
+  if (signal?.aborted) {
+    throw signal.reason ?? new Error('Aborted');
+  }
+
   return buildLoadedModel(modelSize, variant, wasmBytes, weightData, exportMap);
 }
 
@@ -222,6 +257,7 @@ async function loadModelViaFetch(
   modelSize: ModelSize,
   variant: WasmVariant,
   baseUrlOption: string,
+  signal: AbortSignal | undefined,
 ): Promise<LoadedModel> {
   const base = normalizeUrl(baseUrlOption);
   const prefix = `fastenhancer-${modelSize}-${variant}`;
@@ -234,10 +270,11 @@ async function loadModelViaFetch(
   let exportMap: Record<string, string>;
 
   try {
+    const fetchOpts: RequestInit | undefined = signal ? { signal } : undefined;
     const [wasmRes, weightRes, mapRes] = await Promise.all([
-      fetch(wasmBinaryUrl),
-      fetch(weightUrl),
-      fetch(exportMapUrl),
+      fetch(wasmBinaryUrl, fetchOpts),
+      fetch(weightUrl, fetchOpts),
+      fetch(exportMapUrl, fetchOpts),
     ]);
 
     if (!wasmRes.ok) {
@@ -259,7 +296,7 @@ async function loadModelViaFetch(
     [wasmBytes, weightData, exportMap] = await Promise.all([
       wasmRes.arrayBuffer(),
       weightRes.arrayBuffer(),
-      mapRes.json() as Promise<Record<string, string>>,
+      mapRes.json().then(validateExportMap),
     ]);
   } catch (err) {
     if (err instanceof WasmLoadError) throw err;
@@ -328,7 +365,12 @@ function buildLoadedModel(
 
     async createStreamDenoiser(
       inputStream: MediaStream,
-      opts?: { workletUrl?: string; onWarning?: (message: string) => void },
+      opts?: {
+        workletUrl?: string;
+        onWarning?: (message: string) => void;
+        audioContext?: AudioContext;
+        onAutoBypass?: (enabled: boolean) => void;
+      },
     ): Promise<StreamDenoiser> {
       return createStreamDenoiserImpl({
         inputStream,
@@ -338,6 +380,8 @@ function buildLoadedModel(
         modelSize: modelSizeId,
         workletUrl: opts?.workletUrl,
         onWarning: opts?.onWarning,
+        audioContext: opts?.audioContext,
+        onAutoBypass: opts?.onAutoBypass,
       });
     },
   };

@@ -158,6 +158,14 @@ function createDenoiserInstance(initialWasm: WasmInstance, initialStatePtr: numb
         );
       }
 
+      for (let i = 0; i < input.length; i++) {
+        if (!Number.isFinite(input[i])) {
+          throw new ValidationError(
+            `Input contains non-finite value at index ${i}: ${input[i]}`,
+          );
+        }
+      }
+
       if (bypassEnabled) {
         return new Float32Array(input);
       }
@@ -420,7 +428,7 @@ export async function isSupported(): Promise<SupportInfo> {
 export { loadModel, clearModelCache, clearCachedModel } from './loader.js';
 export type { LoadModelOptions, LoadedModel } from './loader.js';
 export { createStreamDenoiser } from './stream-denoiser.js';
-export type { StreamDenoiserOptions, StreamDenoiser } from './stream-denoiser.js';
+export type { StreamDenoiserOptions, StreamDenoiser, WorkletStateResponse } from './stream-denoiser.js';
 export { getModels, recommendModel } from './models.js';
 export type { ModelInfo, ModelPriority, ModelRecommendation, RecommendModelOptions } from './models.js';
 export { diagnose } from './diagnose.js';
