@@ -1,14 +1,9 @@
 # Publish to npm on GitHub Release creation.
 #
-# Authentication modes (auto-detected):
-#   1. Token-based (initial publish):
-#      - Create npm Automation token at https://www.npmjs.com/settings/~/tokens
-#      - Add as GitHub secret NPM_TOKEN in repo Settings > Secrets
-#
-#   2. OIDC Trusted Publishing (after first publish):
-#      - Go to https://www.npmjs.com/package/fastenhancer-web/access
-#      - Add Trusted Publisher: owner=ryyr-ry, repo=fastenhancer-web, workflow=publish.yml
-#      - Delete NPM_TOKEN secret from GitHub (empty string blocks OIDC)
+# Authentication: OIDC Trusted Publishing (tokenless)
+#   - Configure at https://www.npmjs.com/package/fastenhancer-web/access
+#   - Trusted Publisher: owner=ryyr-ry, repo=fastenhancer-web, workflow=publish.yml
+#   - No NPM_TOKEN secret needed — GitHub Actions OIDC provides identity
 #
 # Build note: src/embedded/*.ts (base64-encoded WASM + weights) are tracked in git.
 # Full WASM rebuild (emcc) is NOT needed — tsc alone produces a publishable dist/.
@@ -64,17 +59,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4  # pin: v4.4.0
         with:
-          node-version: "22"
+          node-version: "24"
 
-      - name: Publish to npm
-        shell: bash
-        run: |
-          if [ -n "$NPM_TOKEN" ]; then
-            echo "Authenticating with npm token..."
-            echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" >> "$HOME/.npmrc"
-          else
-            echo "Authenticating with OIDC trusted publishing..."
-          fi
-          npm publish --provenance --access public --ignore-scripts
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish to npm (OIDC Trusted Publishing)
+        run: npm publish --provenance --access public --ignore-scripts

@@ -105,6 +105,7 @@ function createDenoiserInstance(initialWasm: WasmInstance, initialStatePtr: numb
   const processingTimes = new Float64Array(maxTimingSamples);
   let timingWriteIndex = 0;
   let timingCount = 0;
+  let lifetimeFrames = 0;
   let droppedFrames = 0;
 
   function emit(event: EventType, ...args: unknown[]): void {
@@ -185,6 +186,7 @@ function createDenoiserInstance(initialWasm: WasmInstance, initialStatePtr: numb
         processingTimes[timingWriteIndex % maxTimingSamples] = elapsed;
         timingWriteIndex++;
         timingCount = Math.min(timingCount + 1, maxTimingSamples);
+        lifetimeFrames++;
         return output;
       } catch (err) {
         droppedFrames++;
@@ -256,7 +258,7 @@ function createDenoiserInstance(initialWasm: WasmInstance, initialStatePtr: numb
     },
 
     get performance(): PerformanceStats {
-      if (timingCount === 0) {
+      if (lifetimeFrames === 0) {
         return { avgMs: 0, p99Ms: 0, droppedFrames, totalFrames: 0 };
       }
       const samples: number[] = [];
@@ -271,7 +273,7 @@ function createDenoiserInstance(initialWasm: WasmInstance, initialStatePtr: numb
         timingCount - 1,
       );
       const p99Ms = samples[p99Index];
-      return { avgMs, p99Ms, droppedFrames, totalFrames: timingCount };
+      return { avgMs, p99Ms, droppedFrames, totalFrames: lifetimeFrames };
     },
 
     get isSwitching(): boolean {
@@ -334,6 +336,7 @@ function createDenoiserInstance(initialWasm: WasmInstance, initialStatePtr: numb
 
           timingWriteIndex = 0;
           timingCount = 0;
+          lifetimeFrames = 0;
           droppedFrames = 0;
         } finally {
           switchCount--;

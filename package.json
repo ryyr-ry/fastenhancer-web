@@ -1,6 +1,6 @@
 {
   "name": "fastenhancer-web",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Real-time voice noise removal for the web using FastEnhancer (ICASSP 2026) via C/WASM SIMD",
   "type": "module",
   "main": "./dist/api/index.js",

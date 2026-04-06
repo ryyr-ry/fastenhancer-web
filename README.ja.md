@@ -310,7 +310,7 @@ worker-src blob:;
 |---|---|---|---|
 | **最小バンドル** | **124 KB** (Tiny, gzip) | ~95 KB | 11.79 MB (WASM のみ) |
 | **ゼロコンフィグ** | ✅ JS に埋め込み | ❌ `.wasm` 配信必要 | ❌ `.wasm` + `.onnx` 配信必要 |
-| **特殊ヘッダー** | 不要 | 不要 | SharedArrayBuffer 必要（マルチスレッド時） |
+| **特殊ヘッダー** | ✅ 不要 | ✅ 不要 | ❌ SharedArrayBuffer 必要（マルチスレッド時） |
 | **サンプルレート** | 48 kHz ネイティブ | 48 kHz | モデル依存 |
 | **モデル品質** | FastEnhancer (ICASSP 2026) | RNNoise (2018) | モデル依存 |
 | **実行時 malloc** | ゼロ | ゼロ | あり |

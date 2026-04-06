@@ -172,6 +172,8 @@ Bundlers with tree-shaking will only include the model you actually import.
 
 ---
 
+<a id="api-reference"></a>
+
 ## 📖 API Reference
 
 ### `useDenoiser(modelSize, options?)` — React Hook
@@ -378,7 +380,7 @@ worker-src blob:;
 |---|---|---|---|
 | **Smallest bundle** | **124 KB** (Tiny, gzip) | ~95 KB | 11.79 MB (WASM only) |
 | **Zero-config** | ✅ Embedded in JS | ❌ Requires `.wasm` | ❌ Requires `.wasm` + `.onnx` |
-| **Special headers** | ❌ Not needed | ❌ Not needed | ✅ SharedArrayBuffer (multi-thread) |
+| **Special headers** | ✅ Not needed | ✅ Not needed | ❌ SharedArrayBuffer (multi-thread) |
 | **Sample rate** | 48 kHz native | 48 kHz | Model-dependent |
 | **Model quality** | FastEnhancer (ICASSP 2026) | RNNoise (2018) | Varies |
 | **Runtime malloc** | Zero | Zero | Yes |
