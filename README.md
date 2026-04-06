@@ -1,44 +1,115 @@
-# fastenhancer-web
+<div align="center">
 
-Real-time voice noise removal for the browser, powered by [FastEnhancer](https://github.com/aask1357/fastenhancer) (ICASSP 2026). Written in C, compiled to WebAssembly SIMD, and exposed through a clean TypeScript API.
+# 🎙️ fastenhancer-web
 
-> **日本語のドキュメントは [README.ja.md](./README.ja.md) をご覧ください。**
+### Real-time voice noise removal for the browser
 
----
+[![npm version](https://img.shields.io/npm/v/fastenhancer-web.svg?style=flat-square)](https://www.npmjs.com/package/fastenhancer-web)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](./LICENSE)
+[![CI](https://github.com/ryyr-ry/fastenhancer-web/actions/workflows/deploy-demo.yml/badge.svg?style=flat-square)](https://github.com/ryyr-ry/fastenhancer-web/actions/workflows/deploy-demo.yml)
+[![Tests: 581](https://img.shields.io/badge/tests-581%20passed-brightgreen.svg?style=flat-square)](#test-architecture)
 
-## Why fastenhancer-web?
+Powered by [FastEnhancer](https://github.com/aask1357/fastenhancer) (ICASSP 2026)<br>
+Written in C → WebAssembly SIMD → TypeScript API
 
-Most browser-based noise removal solutions depend on generic inference runtimes. For example, the standard ONNX Runtime Web v1.24.3 WASM file (`ort-wasm-simd-threaded.wasm`) is **11.79 MB** alone (verified on jsdelivr CDN). Add JS glue and model weights, and users face multi-megabyte downloads. **fastenhancer-web implements neural network inference directly in C, eliminating runtime dependencies and achieving minimal bundle size:**
+<br>
 
-| Model | Parameters | WASM + Weights (gzip) | Processing Time (SIMD) | Budget Utilization |
-|-------|-----------|----------------------|----------------------|-------------------|
-| **Tiny** | 28K | **124 KB** | 0.45 ms | 4.2% |
-| **Base** | 101K | **391 KB** | 1.63 ms | 15% |
-| **Small** | 207K | **780 KB** | 3.88 ms | 36% |
+[**🎧 Live Demo**](https://ryyr-ry.github.io/fastenhancer-web/) &nbsp;·&nbsp; [**📖 API Reference**](#api-reference) &nbsp;·&nbsp; [**🇯🇵 日本語**](./README.ja.md)
 
-- 48 kHz native — no resampling artifacts
-- WASM SIMD acceleration with relaxed-simd FMA
-- Zero runtime `malloc` — all memory pre-allocated at initialization
-- No SharedArrayBuffer / COOP / COEP headers required
-- CSP-compatible — requires only `wasm-unsafe-eval` (no `unsafe-eval`)
+<br>
 
----
+| Model | Bundle (gzip) | Latency | Budget |
+|:-----:|:-------------:|:-------:|:------:|
+| **Tiny** | **124 KB** | 0.45 ms | 4.2% |
+| **Base** | **391 KB** | 1.63 ms | 15% |
+| **Small** | **780 KB** | 3.88 ms | 36% |
 
-## Installation
+<sub>ONNX Runtime Web WASM alone is 11.79 MB. fastenhancer-web Tiny is <b>95× smaller</b>.</sub>
+
+</div>
+
+<br>
+
+## ✨ Features
+
+<table>
+<tr>
+<td width="50%">
+
+🎯 **Zero-config**<br>
+WASM + weights embedded as base64 in JS.<br>
+No `.wasm` to serve. No CDN. No CORS.
+
+</td>
+<td width="50%">
+
+⚡ **Tiny footprint**<br>
+124 KB gzip (Tiny model). Neural net inference<br>
+in C — no generic runtime overhead.
+
+</td>
+</tr>
+<tr>
+<td>
+
+🔊 **48 kHz native**<br>
+No resampling. Processes at native sample rate<br>
+with 10.67 ms frame budget.
+
+</td>
+<td>
+
+🔒 **No special headers**<br>
+No SharedArrayBuffer, no COOP/COEP.<br>
+CSP: only `wasm-unsafe-eval`.
+
+</td>
+</tr>
+<tr>
+<td>
+
+🧩 **3-layer API**<br>
+React hook (1 line) · Stream (3 lines)<br>
+Frame-level control.
+
+</td>
+<td>
+
+📦 **Every bundler**<br>
+Vite · webpack · esbuild · Rollup · Bun<br>
+ESM-only. Tree-shakable.
+
+</td>
+</tr>
+</table>
+
+<br>
+
+## 📦 Installation
 
 ```bash
+# npm
 npm install fastenhancer-web
+
+# bun
+bun add fastenhancer-web
+
+# pnpm
+pnpm add fastenhancer-web
+
+# yarn
+yarn add fastenhancer-web
 ```
 
-> **Note:** This package is **ESM-only**. It requires a bundler (Vite, esbuild, webpack 5+) or a runtime that supports ES modules (Node.js 18+ with `"type": "module"`). CommonJS `require()` is not supported.
+> **ESM-only.** Requires a bundler (Vite, esbuild, webpack 5+) or a runtime with ES module support (Node.js 18+ with `"type": "module"`). CommonJS `require()` is not supported.
 >
-> **TypeScript users:** This package uses `"moduleResolution": "bundler"` in its `tsconfig.json`. If your project uses `"node16"` or `"nodenext"` module resolution, you may need to add explicit `.js` extensions to imports or set `"moduleResolution": "bundler"` in your own `tsconfig.json`.
+> **TypeScript users:** This package uses `"moduleResolution": "bundler"`. If your project uses `"node16"` or `"nodenext"`, you may need to set `"moduleResolution": "bundler"` in your `tsconfig.json`.
 
 ---
 
-## Quick Start
+## 🚀 Quick Start
 
-### Layer 3: React Hook
+### Layer 3 — React Hook
 
 ```tsx
 import { useDenoiser } from 'fastenhancer-web/react';
@@ -62,7 +133,7 @@ function CallScreen() {
 }
 ```
 
-### Layer 2: Vanilla JavaScript (3 lines)
+### Layer 2 — Stream API
 
 ```typescript
 import { loadModel } from 'fastenhancer-web';
@@ -74,21 +145,34 @@ const cleanStream = denoiser.outputStream;
 denoiser.destroy();
 ```
 
-### Layer 1: Frame-level Processing
+### Layer 1 — Frame-level
 
 ```typescript
 import { loadModel } from 'fastenhancer-web';
 
 const model = await loadModel('small');
 const denoiser = await model.createDenoiser();
-// Process raw Float32Array frames (512 samples at 48 kHz)
-const output = denoiser.processFrame(inputFloat32Array);
+const output = denoiser.processFrame(inputFloat32Array); // 512 samples @ 48 kHz
 denoiser.destroy();
 ```
 
+### 💡 Zero-config vs Self-hosted
+
+By default, all WASM binaries and model weights are **embedded as base64 inside JavaScript modules**. This means zero external dependencies — no `.wasm` files to serve, no separate weight files to host, no CDN setup:
+
+```typescript
+// Zero-config: everything is embedded (default)
+const model = await loadModel('small');
+
+// Self-hosted: fetch from your own CDN
+const model = await loadModel('small', { baseUrl: 'https://cdn.example.com/models/' });
+```
+
+Bundlers with tree-shaking will only include the model you actually import.
+
 ---
 
-## API Reference
+## 📖 API Reference
 
 ### `useDenoiser(modelSize, options?)` — React Hook
 
@@ -203,7 +287,7 @@ import { WasmLoadError, DestroyedError } from 'fastenhancer-web/errors';
 
 ---
 
-## Model Comparison
+## 📊 Model Comparison
 
 All models process 48 kHz audio natively with a 512-sample hop size (10.67 ms frame budget).
 
@@ -227,7 +311,7 @@ All models process 48 kHz audio natively with a 512-sample hop size (10.67 ms fr
 
 ---
 
-## Architecture
+## 🏗️ Architecture
 
 ```
 Microphone Input (48 kHz)
@@ -247,17 +331,19 @@ Clean Audio Output (48 kHz)
 ```
 
 **Key design decisions:**
-- `loadModel()` loads WASM binary, weights, and export map automatically — by default via embedded JS modules (`import()`) for zero-config bundler compatibility; when `baseUrl` is provided, falls back to `fetch()`
-- Default worklet loading uses inline Blob URL (no external file dependency); `workletUrl` option available for strict CSP environments that disallow `blob:`
-- AudioWorklet uses raw `WebAssembly.instantiate()` — no Emscripten glue inside the worklet
-- Audio processing is mono-only — stereo inputs are downmixed to the first channel
-- WASM binary is transferred as ArrayBuffer from main thread to worklet via `postMessage`
-- All neural network buffers are pre-allocated at init time (zero runtime malloc)
-- All 3 models (tiny/base/small) and both variants (scalar/SIMD) are embedded in the package (~1.85 MB tarball). This is intentional for zero-config usage — bundlers with tree-shaking will only include the model you actually `import()`. If you need to minimize initial download size, use the `baseUrl` option with `loadModel()` to fetch models on demand from a CDN or your own server
+
+| Decision | Detail |
+|----------|--------|
+| Loading strategy | Embedded JS modules by default; `fetch()` when `baseUrl` provided |
+| Worklet loading | Inline Blob URL (no external file); `workletUrl` for strict CSP |
+| WASM instantiation | Raw `WebAssembly.instantiate()` — no Emscripten glue in worklet |
+| Audio channels | Mono only — stereo inputs downmixed to first channel |
+| Memory | All buffers pre-allocated at init (zero runtime malloc) |
+| Package size | All 3 models + both variants embedded (~1.85 MB tarball); tree-shakable |
 
 ---
 
-## Browser Support
+## 🌐 Browser Support
 
 | Browser | Status | Notes |
 |---------|--------|-------|
@@ -269,40 +355,46 @@ Clean Audio Output (48 kHz)
 **Requirements:**
 - WASM SIMD support (falls back to scalar if unavailable)
 - AudioWorklet support
-- CSP must allow `wasm-unsafe-eval` (for `WebAssembly.instantiate()`)
-- Default worklet loading uses `blob:` URL — if your CSP blocks `blob:`, provide a `workletUrl` option
 - No `SharedArrayBuffer` / `Cross-Origin-Isolation` headers needed
 
-**Required CSP directives:**
-- `script-src`: `'self'` (or wherever your scripts are served from)
-- `script-src` or `worker-src`: `blob:` (for default worklet loading; not needed if using `workletUrl` option)
-- `script-src`: `'wasm-unsafe-eval'` (required for `WebAssembly.instantiate()`)
+<details>
+<summary><b>CSP directives</b></summary>
 
-WASM SIMD sizes above are approximate and depend on whether you count raw `.wasm` bytes or embedded JS wrapper output.
-
----
-
-## Exports Map
-
-```json
-{
-  ".":            "Main API (createDenoiser, createStreamDenoiser, loadModel, diagnose, getModels, ...)",
-  "./react":      "React Hook (useDenoiser)",
-  "./stream":     "AudioWorklet integration (createStreamDenoiser)",
-  "./loader":     "WASM loader utilities (loadModel)",
-  "./errors":     "Error classes"
-}
+```
+script-src 'self' 'wasm-unsafe-eval' blob:;
+worker-src blob:;
 ```
 
+- `wasm-unsafe-eval` — required for `WebAssembly.instantiate()`
+- `blob:` — for default worklet loading (not needed if using `workletUrl` option)
+
+</details>
+
 ---
 
-## Development
+## ⚖️ Comparison
+
+| | fastenhancer-web | rnnoise-wasm | ONNX Runtime Web |
+|---|---|---|---|
+| **Smallest bundle** | **124 KB** (Tiny, gzip) | ~95 KB | 11.79 MB (WASM only) |
+| **Zero-config** | ✅ Embedded in JS | ❌ Requires `.wasm` | ❌ Requires `.wasm` + `.onnx` |
+| **Special headers** | ❌ Not needed | ❌ Not needed | ✅ SharedArrayBuffer (multi-thread) |
+| **Sample rate** | 48 kHz native | 48 kHz | Model-dependent |
+| **Model quality** | FastEnhancer (ICASSP 2026) | RNNoise (2018) | Varies |
+| **Runtime malloc** | Zero | Zero | Yes |
+| **Tree-shakable** | ✅ Per-model | N/A | N/A |
+| **TypeScript types** | ✅ Built-in | ❌ | ✅ Built-in |
+| **React hook** | ✅ Built-in | ❌ | ❌ |
+
+---
+
+## 🛠️ Development
 
 ```bash
 # Install dependencies
 bun install
 
-# Run all vitest tests (187 tests: unit + WASM + adversarial)
+# Run all vitest tests (305 tests across 22 files)
 bun run test
 
 # Build TypeScript
@@ -311,25 +403,26 @@ bun run build:ts
 # Build all WASM variants (requires Emscripten SDK)
 bun run build:wasm:all
 
-# Build everything
+# Build everything (WASM + TS)
 bun run build:all
 
-# Run C engine native tests (201 tests, requires gcc/MinGW)
-# Individual test executables are built and run via build scripts
+# Run E2E browser tests (requires Playwright browsers)
+bunx playwright test
 ```
 
 ### Test Architecture
 
 | Suite | Environment | Framework | Tests | Purpose |
 |-------|-------------|-----------|-------|---------|
-| C native | gcc (MinGW) | Unity | 201 | C module correctness |
+| C native | gcc (MinGW) | Unity | ~201 | C module correctness |
 | WASM | Emscripten (scalar + SIMD) | vitest | 30 | Emscripten conversion + SIMD correctness |
-| TypeScript unit | Node.js | vitest | 157 | API / worklet / lifecycle correctness |
-| Browser E2E | Chrome + Firefox | Playwright | 30 | AudioWorklet integration |
+| TypeScript unit | Node.js | vitest | 275 | API / worklet / lifecycle correctness |
+| Browser E2E | Chrome + Firefox + WebKit | Playwright | 75 | AudioWorklet integration |
+| **Total** | | | **~581** | |
 
 ---
 
-## Numerical Accuracy
+## 🔬 Numerical Accuracy
 
 PyTorch reference ↔ WASM SIMD output comparison (40 frames):
 

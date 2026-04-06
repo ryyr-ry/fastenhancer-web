@@ -28,11 +28,14 @@
 
 ```bash
 npm install fastenhancer-web
+bun add fastenhancer-web
+pnpm add fastenhancer-web
+yarn add fastenhancer-web
 ```
 
 > **注意:** このパッケージは **ESM専用** です。バンドラー（Vite, esbuild, webpack 5+）またはESモジュール対応ランタイム（Node.js 18+ `"type": "module"`）が必要です。CommonJS `require()` はサポートされていません。
 >
-> **TypeScript利用者向け:** このパッケージは `"moduleResolution": "bundler"` を使用しています。プロジェクトで `"node16"` や `"nodenext"` を使用している場合、インポートに明示的な `.js` 拡張子を追加するか、`tsconfig.json` で `"moduleResolution": "bundler"` を設定してください。
+> **TypeScript利用者向け:** このパッケージは `"moduleResolution": "bundler"` を使用しています。プロジェクトで `"node16"` や `"nodenext"` を使用している場合、`tsconfig.json` で `"moduleResolution": "bundler"` を設定してください。
 
 ---
 
@@ -62,7 +65,7 @@ function CallScreen() {
 }
 ```
 
-### Layer 2: Vanilla JavaScript（3 行）
+### Layer 2: ストリーム API
 
 ```typescript
 import { loadModel } from 'fastenhancer-web';
@@ -81,10 +84,23 @@ import { loadModel } from 'fastenhancer-web';
 
 const model = await loadModel('small');
 const denoiser = await model.createDenoiser();
-// Float32Array フレーム単位処理（48 kHz で 512 サンプル）
-const output = denoiser.processFrame(inputFloat32Array);
+const output = denoiser.processFrame(inputFloat32Array); // 48 kHz で 512 サンプル
 denoiser.destroy();
 ```
+
+### ゼロコンフィグ vs セルフホスト
+
+デフォルトでは WASM バイナリとモデル重みは **JavaScript モジュール内に base64 として埋め込まれています**。外部依存ゼロ — `.wasm` ファイルの配信不要、CDN 不要、CORS の心配なし：
+
+```typescript
+// ゼロコンフィグ: すべて埋め込み（デフォルト）
+const model = await loadModel('small');
+
+// セルフホスト: CDN からフェッチ
+const model = await loadModel('small', { baseUrl: 'https://cdn.example.com/models/' });
+```
+
+ツリーシェイキング対応バンドラーは実際にインポートしたモデルのみを含みます。
 
 ---
 
@@ -247,13 +263,15 @@ import { WasmLoadError, DestroyedError } from 'fastenhancer-web/errors';
 ```
 
 **設計上の要点:**
-- `loadModel()` が WASM バイナリ、重み、エクスポートマップを自動ロード — デフォルトでは埋め込み JS モジュール（`import()`）を使いバンドラー設定不要、`baseUrl` 指定時は `fetch()` にフォールバック
-- デフォルトの worklet 読み込みはインライン Blob URL を使用（外部ファイル依存なし）、`blob:` を禁止する厳格な CSP 環境では `workletUrl` オプションを指定可能
-- AudioWorklet での生の `WebAssembly.instantiate()` 利用と worklet 内への Emscripten グルーコード不持ち込み
-- 音声処理はモノラル専用 — ステレオ入力は最初のチャネルにダウンミックス
-- メインスレッドから worklet への `postMessage` による WASM バイナリの ArrayBuffer 受け渡し
-- ニューラルネットワーク用バッファの初期化時一括確保（実行時 `malloc` なし）
-- 全3モデル（tiny/base/small）および両バリアント（scalar/SIMD）をパッケージに埋め込み（tarball 約1.85 MB）。これは設定不要での利用を意図した設計です。ツリーシェイキング対応バンドラーは実際に `import()` したモデルのみを含みます。初回ダウンロードサイズを最小化したい場合は `loadModel()` の `baseUrl` オプションで CDN や自社サーバーからオンデマンドフェッチが可能です
+
+| 設計判断 | 詳細 |
+|----------|------|
+| ロード戦略 | デフォルトは埋め込み JS モジュール、`baseUrl` 指定時は `fetch()` |
+| Worklet 読み込み | インライン Blob URL（外部ファイル不要）、厳格 CSP には `workletUrl` |
+| WASM インスタンス化 | 生の `WebAssembly.instantiate()` — worklet 内に Emscripten グルーなし |
+| オーディオチャネル | モノラル専用 — ステレオは最初のチャネルにダウンミックス |
+| メモリ | 全バッファ初期化時一括確保（実行時 malloc ゼロ） |
+| パッケージサイズ | 全3モデル＋両バリアント埋め込み（tarball 約 1.85 MB）、ツリーシェイキング対応 |
 
 ---
 
@@ -269,23 +287,36 @@ import { WasmLoadError, DestroyedError } from 'fastenhancer-web/errors';
 **要件:**
 - WASM SIMD 対応（非対応時は scalar へフォールバック）
 - AudioWorklet 対応
-- CSP で `wasm-unsafe-eval` の許可が必要（`WebAssembly.instantiate()` のため）
-- デフォルトの worklet 読み込みは `blob:` URL を使用 — CSP で `blob:` を禁止している場合は `workletUrl` オプションを指定してください
 - `SharedArrayBuffer` / `Cross-Origin-Isolation` ヘッダー不要
+
+<details>
+<summary><b>CSP ディレクティブ</b></summary>
+
+```
+script-src 'self' 'wasm-unsafe-eval' blob:;
+worker-src blob:;
+```
+
+- `wasm-unsafe-eval` — `WebAssembly.instantiate()` に必要
+- `blob:` — デフォルトの worklet 読み込みに必要（`workletUrl` 使用時は不要）
+
+</details>
 
 ---
 
-## エクスポートマップ
+## 比較
 
-```json
-{
-  ".":            "メイン API（createDenoiser, createStreamDenoiser, loadModel, diagnose, getModels, ...）",
-  "./react":      "React Hook（useDenoiser）",
-  "./stream":     "AudioWorklet 統合（createStreamDenoiser）",
-  "./loader":     "WASM ローダーユーティリティ（loadModel）",
-  "./errors":     "エラークラス"
-}
-```
+| | fastenhancer-web | rnnoise-wasm | ONNX Runtime Web |
+|---|---|---|---|
+| **最小バンドル** | **124 KB** (Tiny, gzip) | ~95 KB | 11.79 MB (WASM のみ) |
+| **ゼロコンフィグ** | ✅ JS に埋め込み | ❌ `.wasm` 配信必要 | ❌ `.wasm` + `.onnx` 配信必要 |
+| **特殊ヘッダー** | 不要 | 不要 | SharedArrayBuffer 必要（マルチスレッド時） |
+| **サンプルレート** | 48 kHz ネイティブ | 48 kHz | モデル依存 |
+| **モデル品質** | FastEnhancer (ICASSP 2026) | RNNoise (2018) | モデル依存 |
+| **実行時 malloc** | ゼロ | ゼロ | あり |
+| **ツリーシェイキング** | ✅ モデル単位 | N/A | N/A |
+| **TypeScript 型** | ✅ 内蔵 | ❌ | ✅ 内蔵 |
+| **React フック** | ✅ 内蔵 | ❌ | ❌ |
 
 ---
 
@@ -295,30 +326,31 @@ import { WasmLoadError, DestroyedError } from 'fastenhancer-web/errors';
 # 依存関係をインストール
 bun install
 
-# vitest 全テストを実行 (187 tests: unit + WASM + adversarial)
+# vitest 全テストを実行（305 テスト、22 ファイル）
 bun run test
 
 # TypeScript をビルド
 bun run build:ts
 
-# すべての WASM バリアントをビルド (Emscripten SDK が必要)
+# すべての WASM バリアントをビルド（Emscripten SDK が必要）
 bun run build:wasm:all
 
-# 全体をビルド
+# 全体をビルド（WASM + TS）
 bun run build:all
 
-# C エンジンのネイティブテストを実行 (201 tests, gcc/MinGW が必要)
-# テスト実行ファイルはビルドスクリプト経由で生成・実行されます
+# E2E ブラウザテストを実行（Playwright ブラウザが必要）
+bunx playwright test
 ```
 
 ### テスト構成
 
 | スイート | 環境 | フレームワーク | テスト数 | 目的 |
 |-------|-------------|-----------|-------|---------|
-| C native | gcc (MinGW) | Unity | 201 | C モジュールの正しさ |
+| C native | gcc (MinGW) | Unity | ~201 | C モジュールの正しさ |
 | WASM | Emscripten (scalar + SIMD) | vitest | 30 | Emscripten 変換 + SIMD 正当性 |
-| TypeScript unit | Node.js | vitest | 157 | API / worklet / ライフサイクルの正しさ |
-| Browser E2E | Chrome + Firefox | Playwright | 30 | AudioWorklet 統合 |
+| TypeScript unit | Node.js | vitest | 275 | API / worklet / ライフサイクルの正しさ |
+| Browser E2E | Chrome + Firefox + WebKit | Playwright | 75 | AudioWorklet 統合 |
+| **合計** | | | **~581** | |
 
 ---
 
