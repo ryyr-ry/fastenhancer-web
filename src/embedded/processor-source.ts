@@ -92,6 +92,8 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
     this._inputWritePos = 0;
 
     this._outputPos = 0;
+    this._passthroughBuffer = null;
+    this._lastFramePassthrough = false;
 
     this._wasm = null;
     this._statePtr = 0;
@@ -368,9 +370,11 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
   }
 
   _copyInputFrameToOutput(hopSize) {
-    const heapF32 = this._getHeapF32();
-    const outputOffset = this._outputPtr >> 2;
-    heapF32.set(this._inputBuffer.subarray(0, hopSize), outputOffset);
+    if (!this._passthroughBuffer || this._passthroughBuffer.length < hopSize) {
+      this._passthroughBuffer = new Float32Array(hopSize);
+    }
+    this._passthroughBuffer.set(this._inputBuffer.subarray(0, hopSize));
+    this._lastFramePassthrough = true;
   }
 
   _getHeapF32() {
@@ -403,6 +407,7 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
   }
 
   _runWasmFrame(hopSize) {
+    this._lastFramePassthrough = false;
     const t0 = _nowReliable();
 
     const heapF32 = this._getHeapF32();
@@ -525,9 +530,13 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
     const outputPos = this._outputPos;
     const available = outputPos < hopSize ? Math.min(len, hopSize - outputPos) : 0;
     if (available > 0) {
-      const heapF32 = this._getHeapF32();
-      const outputOffset = this._outputPtr >> 2;
-      output.set(heapF32.subarray(outputOffset + outputPos, outputOffset + outputPos + available));
+      if (this._lastFramePassthrough && this._passthroughBuffer) {
+        output.set(this._passthroughBuffer.subarray(outputPos, outputPos + available));
+      } else {
+        const heapF32 = this._getHeapF32();
+        const outputOffset = this._outputPtr >> 2;
+        output.set(heapF32.subarray(outputOffset + outputPos, outputOffset + outputPos + available));
+      }
     }
     this._outputPos += len;
 

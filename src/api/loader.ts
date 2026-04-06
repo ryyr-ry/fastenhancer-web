@@ -26,6 +26,7 @@ import {
   loadEmbeddedWasm,
   loadEmbeddedWeights,
   loadEmbeddedExportMap,
+  revokeProcessorBlobUrl,
 } from './embedded-loader.js';
 
 /** Options passed to loadModel */
@@ -141,6 +142,7 @@ const modelCache = new Map<string, Promise<LoadedModel>>();
  */
 export function clearModelCache(): void {
   modelCache.clear();
+  revokeProcessorBlobUrl();
 }
 
 /**

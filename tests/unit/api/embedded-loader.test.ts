@@ -47,10 +47,10 @@ describe('loadEmbeddedWasm', () => {
     expect(Array.from(header)).toEqual([0x00, 0x61, 0x73, 0x6d]);
   });
 
-  it('returns a fresh ArrayBuffer copy on every call for transferable safety', async () => {
+  it('returns the same cached ArrayBuffer on consecutive calls', async () => {
     const a = await loadEmbeddedWasm('tiny', 'simd');
     const b = await loadEmbeddedWasm('tiny', 'simd');
-    expect(a).not.toBe(b);
+    expect(a).toBe(b);
     expect(a.byteLength).toBe(b.byteLength);
   });
 
@@ -178,32 +178,23 @@ function buffersEqual(a: ArrayBuffer, b: ArrayBuffer): boolean {
   return true;
 }
 
-describe('defensive copy', () => {
-  it('loadEmbeddedWasm returns distinct ArrayBuffers on consecutive calls', async () => {
+describe('caching behavior', () => {
+  it('loadEmbeddedWasm returns the same cached ArrayBuffer', async () => {
     const a = await loadEmbeddedWasm('tiny', 'simd');
     const b = await loadEmbeddedWasm('tiny', 'simd');
-    expect(a).not.toBe(b);
-    expect(buffersEqual(a, b)).toBe(true);
+    expect(a).toBe(b);
   });
 
-  it('loadEmbeddedWeights returns distinct ArrayBuffers on consecutive calls', async () => {
+  it('loadEmbeddedWeights returns the same cached ArrayBuffer', async () => {
     const a = await loadEmbeddedWeights('tiny');
     const b = await loadEmbeddedWeights('tiny');
-    expect(a).not.toBe(b);
-    expect(buffersEqual(a, b)).toBe(true);
+    expect(a).toBe(b);
   });
 
-  it('mutation of returned wasm buffer does not affect subsequent calls', async () => {
-    const a = await loadEmbeddedWasm('tiny', 'simd');
-    new Uint8Array(a)[0] = 0xff;
-    const b = await loadEmbeddedWasm('tiny', 'simd');
-    expect(new Uint8Array(b)[0]).not.toBe(0xff);
-  });
-
-  it('mutation of returned weight buffer does not affect subsequent calls', async () => {
-    const a = await loadEmbeddedWeights('tiny');
-    new Uint8Array(a)[0] = 0xff;
-    const b = await loadEmbeddedWeights('tiny');
-    expect(new Uint8Array(b)[0]).not.toBe(0xff);
+  it('callers are responsible for defensive copies before transfer', async () => {
+    const wasm = await loadEmbeddedWasm('tiny', 'simd');
+    const copy = wasm.slice(0);
+    expect(copy).not.toBe(wasm);
+    expect(buffersEqual(copy, wasm)).toBe(true);
   });
 });

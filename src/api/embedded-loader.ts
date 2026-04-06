@@ -38,7 +38,8 @@ function validateModel(model: string): void {
 
 /**
  * 埋込WASMバイナリを読み込む。
- * 毎回新しいArrayBufferコピーを返す（Transferable安全）。
+ * キャッシュ済みの同一ArrayBufferを返す。
+ * Transferable安全のためにslice()が必要な場合は呼び出し側で行うこと。
  */
 export async function loadEmbeddedWasm(
   model: ModelSize,
@@ -66,7 +67,8 @@ export async function loadEmbeddedWasm(
 
 /**
  * 埋込重みバイナリを読み込む。
- * キャッシュ済みの同一ArrayBufferを返す（loader.ts側でslice()する）。
+ * キャッシュ済みの同一ArrayBufferを返す。
+ * Transferable安全のためにslice()が必要な場合は呼び出し側で行うこと。
  */
 export async function loadEmbeddedWeights(
   model: ModelSize,
