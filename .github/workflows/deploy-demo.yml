@@ -37,10 +37,10 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Run tests
-        run: bun run embed && vitest run
+        run: bunx vitest run
 
       - name: Build TypeScript
-        run: bun run embed && tsc && node -e "require('fs').cpSync('src/worklet/processor.js','dist/worklet/processor.js')"
+        run: bunx tsc && node -e "require('fs').cpSync('src/worklet/processor.js','dist/worklet/processor.js')"
 
       - name: Install demo dependencies
         working-directory: demo
