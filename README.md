@@ -30,6 +30,8 @@ Most browser-based noise removal solutions depend on generic inference runtimes.
 npm install fastenhancer-web
 ```
 
+> **Note:** This package is **ESM-only**. It requires a bundler (Vite, esbuild, webpack 5+) or a runtime that supports ES modules (Node.js 18+ with `"type": "module"`). CommonJS `require()` is not supported.
+
 ---
 
 ## Quick Start

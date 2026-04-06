@@ -38,6 +38,13 @@ const REQUIRED_EXPORTS = [
 ];
 const OPTIONAL_EXPORTS = ['_fe_process'];
 
+// Emscripten -O3 minifies module and function names to short lowercase identifiers.
+// e.g., module "a" with functions "a", "b", "c", "d", "e".
+const MINIFIED_NAME_RE = /^[a-z]{1,2}$/;
+function isEmscriptenMinified(moduleName: string, funcName: string): boolean {
+  return MINIFIED_NAME_RE.test(moduleName) && MINIFIED_NAME_RE.test(funcName);
+}
+
 /**
  * Creates a WasmInstance from a .wasm binary and export map.
  *
@@ -75,15 +82,19 @@ export async function instantiateWasm(
         };
       } else if (KNOWN_SAFE_STUBS.has(imp.name)) {
         mod[imp.name] = () => 0;
+      } else if (isEmscriptenMinified(imp.module, imp.name)) {
+        // Emscripten -O3 minifies import names to single letters.
+        // These are safe runtime stubs (memory growth, fd ops, etc.).
+        mod[imp.name] = () => 0;
       } else {
         unknownImports.push(`${imp.module}.${imp.name}`);
-        mod[imp.name] = () => 0;
       }
     }
   }
-  if (unknownImports.length > 0 && typeof console !== 'undefined') {
-    console.warn(
-      `[fastenhancer] Unknown WASM imports stubbed: ${unknownImports.join(', ')}`,
+  if (unknownImports.length > 0) {
+    throw new WasmLoadError(
+      `Unknown WASM imports detected: ${unknownImports.join(', ')}. ` +
+      `If these are safe to stub, add them to KNOWN_SAFE_STUBS.`,
     );
   }
 

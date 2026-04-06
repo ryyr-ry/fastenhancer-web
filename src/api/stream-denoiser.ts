@@ -8,7 +8,7 @@
  * The details of WASM inference are handled by processor.js on the worklet side.
  */
 
-import { DestroyedError, AudioContextError, WorkletError } from './errors.js';
+import { DestroyedError, AudioContextError, WorkletError, ValidationError } from './errors.js';
 import { initProcessorBlobUrl } from './embedded-loader.js';
 
 /** Sample rate expected by the model (Hz) */
@@ -20,7 +20,7 @@ const WORKLET_INIT_TIMEOUT_MS = 10_000;
 /** Maximum time to wait for Worklet state retrieval (ms) */
 const WORKLET_STATE_TIMEOUT_MS = 500;
 
-type StreamDenoiserState = 'initializing' | 'running' | 'destroyed';
+type StreamDenoiserState = 'running' | 'destroyed';
 
 /** Options for createStreamDenoiser */
 export interface StreamDenoiserOptions {
@@ -91,8 +91,19 @@ export async function createStreamDenoiser(
     onWarning,
   } = options;
 
+  const VALID_MODEL_SIZES = [0, 1, 2];
+  if (!VALID_MODEL_SIZES.includes(modelSize)) {
+    throw new ValidationError(
+      `Invalid modelSize: ${modelSize}. Must be 0 (tiny), 1 (base), or 2 (small).`,
+    );
+  }
+
   const emitWarning = (message: string): void => {
-    onWarning?.(message);
+    try {
+      onWarning?.(message);
+    } catch (_) {
+      // User callback error must not propagate
+    }
   };
   const _ownsAudioContext = injectedAudioContext === undefined;
 
@@ -118,7 +129,7 @@ export async function createStreamDenoiser(
     }
   };
 
-  if (_ownsAudioContext && audioContext.state === 'suspended') {
+  if (audioContext.state === 'suspended') {
     try {
       await audioContext.resume();
     } catch (resumeErr) {
@@ -179,6 +190,14 @@ export async function createStreamDenoiser(
     source.connect(workletNode);
     workletNode.connect(destination);
   } catch (err) {
+    // @ts-expect-error — partial construction: variables may be uninitialized
+    if (source) { try { source.disconnect(); } catch (_) { /* noop */ } }
+    // @ts-expect-error — partial construction: variables may be uninitialized
+    if (workletNode) { try { workletNode.disconnect(); } catch (_) { /* noop */ } }
+    // @ts-expect-error — partial construction: variables may be uninitialized
+    if (destination) {
+      destination.stream.getTracks().forEach((t) => { try { t.stop(); } catch (_) { /* noop */ } });
+    }
     void closeOwnedAudioContext(audioContext, 'AudioContext.close() failed');
     throw new WorkletError(
       `Failed to construct AudioWorklet node: ${err instanceof Error ? err.message : String(err)}`,
@@ -227,6 +246,11 @@ export async function createStreamDenoiser(
     try { workletNode.disconnect(); } catch (e: unknown) {
       emitWarning(`workletNode.disconnect() failed: ${e instanceof Error ? e.message : String(e)}`);
     }
+    destination.stream.getTracks().forEach((track) => {
+      try { track.stop(); } catch (e: unknown) {
+        emitWarning(`MediaStreamTrack.stop() failed during init cleanup: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    });
     await closeOwnedAudioContext(audioContext, 'AudioContext.close() failed');
     throw err;
   }
@@ -243,14 +267,18 @@ export async function createStreamDenoiser(
       return;
     }
     if (event.data?.type === 'auto_bypass' && currentState !== 'destroyed') {
-      options.onAutoBypass?.(Boolean(event.data.enabled));
+      try {
+        options.onAutoBypass?.(Boolean(event.data.enabled));
+      } catch (_) {
+        // User callback error must not propagate into worklet message handler
+      }
     }
   };
 
   const audioContextStateChangeHandler = (): void => {
     const nextState = audioContext.state;
     emitWarning(`AudioContext state changed to "${nextState}".`);
-    if (nextState === 'suspended' && currentState !== 'destroyed') {
+    if (nextState === 'suspended' && currentState !== 'destroyed' && _ownsAudioContext) {
       void audioContext.resume().catch((resumeErr) => {
         emitWarning(
           `AudioContext.resume() failed after suspension: ${resumeErr instanceof Error ? resumeErr.message : String(resumeErr)}`,
@@ -371,6 +399,11 @@ export async function createStreamDenoiser(
         });
 
         await ackPromise;
+
+        try { workletNode.port.close(); } catch (e) {
+          emitWarning(`workletNode.port.close() failed during destroy: ${e instanceof Error ? e.message : String(e)}`);
+        }
+
         await closeOwnedAudioContext(audioContext, 'AudioContext.close() failed during destroy');
       })();
 

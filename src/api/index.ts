@@ -81,8 +81,18 @@ function createDenoiserInstance(initialWasm: WasmInstance, initialStatePtr: numb
   let wasm = initialWasm;
   let statePtr = initialStatePtr;
   let hopSize = initialHopSize;
-  let inputOffset = wasm._fe_get_input_ptr(statePtr) / 4;
-  let outputOffset = wasm._fe_get_output_ptr(statePtr) / 4;
+
+  function getValidatedPointerOffset(ptr: number, label: string): number {
+    if (!ptr || ptr % 4 !== 0) {
+      throw new ModelInitError(
+        `Invalid WASM ${label} pointer: ${ptr} (must be non-zero and 4-byte aligned)`,
+      );
+    }
+    return ptr / 4;
+  }
+
+  let inputOffset = getValidatedPointerOffset(wasm._fe_get_input_ptr(statePtr), 'input');
+  let outputOffset = getValidatedPointerOffset(wasm._fe_get_output_ptr(statePtr), 'output');
 
   const listeners = new Map<EventType, Set<EventHandler>>();
   const onceListeners = new Map<EventType, Set<EventHandler>>();
@@ -301,8 +311,8 @@ function createDenoiserInstance(initialWasm: WasmInstance, initialStatePtr: numb
           wasm = newWasm;
           statePtr = newStatePtr;
           hopSize = newWasm._fe_get_hop_size(newStatePtr);
-          inputOffset = newWasm._fe_get_input_ptr(newStatePtr) / 4;
-          outputOffset = newWasm._fe_get_output_ptr(newStatePtr) / 4;
+          inputOffset = getValidatedPointerOffset(newWasm._fe_get_input_ptr(newStatePtr), 'input');
+          outputOffset = getValidatedPointerOffset(newWasm._fe_get_output_ptr(newStatePtr), 'output');
 
           if (agcFlag) newWasm._fe_set_agc(newStatePtr, 1);
           if (hpfFlag) newWasm._fe_set_hpf(newStatePtr, 1);

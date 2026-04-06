@@ -34,7 +34,9 @@
     "dist/embedded",
     "dist/engine",
     "dist/react",
+    "dist/wasm",
     "dist/worklet",
+    "weights",
     "LICENSE",
     "README.md"
   ],
@@ -55,7 +57,8 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "powershell -ExecutionPolicy Bypass -Command \"foreach ($m in 'tiny','base','small') { foreach ($v in 'simd','scalar') { & ./scripts/build-wasm.ps1 -Model $m -Variant $v -WorkletBuild } }\" && bun run embed && tsc && node -e \"require('fs').cpSync('src/worklet/processor.js','dist/worklet/processor.js')\" && bunx playwright test",
     "test:e2e:only": "bunx playwright test",
-    "clean": "node -e \"const fs=require('fs');fs.rmSync('dist',{recursive:true,force:true})\""
+    "clean": "node -e \"const fs=require('fs');fs.rmSync('dist',{recursive:true,force:true})\"",
+    "prepack": "bun run build"
   },
   "keywords": [
     "noise-removal",

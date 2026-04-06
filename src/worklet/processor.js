@@ -171,7 +171,17 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
   }
 
   _initWasm({ wasmBytes, weightBytes, exportMap, modelSize }) {
+    if (this._initialized) {
+      if (this._wasm && this._statePtr) {
+        this._wasm._fe_destroy(this._statePtr);
+        this._statePtr = 0;
+      }
+      this._initialized = false;
+    }
     try {
+      // NOTE: Synchronous compilation is required inside AudioWorklet (no async in process()).
+      // This blocks the audio thread for the duration of compilation (~50-200ms).
+      // WebAssembly.compileStreaming is not available in AudioWorkletGlobalScope.
       const module = new WebAssembly.Module(wasmBytes);
 
       const needed = WebAssembly.Module.imports(module);
@@ -195,6 +205,7 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
         'args_sizes_get',
         'args_get',
       ]);
+      const MINIFIED_NAME_RE = /^[a-z]{1,2}$/;
       const unknownImports = [];
       for (const imp of needed) {
         if (!importObject[imp.module]) importObject[imp.module] = {};
@@ -205,20 +216,19 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
             };
           } else if (KNOWN_SAFE_STUBS.has(imp.name)) {
             importObject[imp.module][imp.name] = () => 0;
+          } else if (MINIFIED_NAME_RE.test(imp.module) && MINIFIED_NAME_RE.test(imp.name)) {
+            // Emscripten -O3 minified import — safe to stub
+            importObject[imp.module][imp.name] = () => 0;
           } else {
             unknownImports.push(`${imp.module}.${imp.name}`);
           }
         }
       }
       if (unknownImports.length > 0) {
-        console.warn(
-          `[fastenhancer] Unknown WASM imports stubbed: ${unknownImports.join(', ')}. ` +
-          'Update KNOWN_SAFE_STUBS if these are safe to stub.'
+        throw new Error(
+          `Unknown WASM imports detected: ${unknownImports.join(', ')}. ` +
+          'If these are safe to stub, add them to KNOWN_SAFE_STUBS.'
         );
-        for (const name of unknownImports) {
-          const [mod, fn] = name.split('.');
-          importObject[mod][fn] = () => 0;
-        }
       }
 
       const instance = new WebAssembly.Instance(module, importObject);
@@ -234,6 +244,23 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
       for (const [readable, minified] of Object.entries(exportMap)) {
         const exp = instance.exports[minified];
         if (typeof exp === 'function') wasm[readable] = exp;
+      }
+
+      const WORKLET_REQUIRED_EXPORTS = [
+        '_malloc', '_free', '_fe_init', '_fe_destroy',
+        '_fe_process_inplace', '_fe_get_input_ptr', '_fe_get_output_ptr',
+        '_fe_get_hop_size', '_fe_get_n_fft',
+        '_fe_set_agc', '_fe_set_hpf', '_fe_reset',
+      ];
+      const missingExports = [];
+      for (const name of WORKLET_REQUIRED_EXPORTS) {
+        if (typeof wasm[name] !== 'function') missingExports.push(name);
+      }
+      if (missingExports.length > 0) {
+        throw new Error(
+          `WASM module is missing required exports: ${missingExports.join(', ')}. ` +
+          'Check that the export map matches the compiled WASM binary.'
+        );
       }
       this._wasm = wasm;
 
