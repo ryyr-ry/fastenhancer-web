@@ -75,6 +75,6 @@ jobs:
           else
             echo "Authenticating with OIDC trusted publishing..."
           fi
-          npm publish --provenance --access public
+          npm publish --provenance --access public --ignore-scripts
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
