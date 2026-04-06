@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { getModels, recommendModel } from '../../../src/api/models.js';
+import { ValidationError } from '../../../src/api/errors.js';
 
 describe('getModels', () => {
   it('returns information for 3 models', () => {
@@ -69,6 +70,6 @@ describe('recommendModel', () => {
   });
 
   it('throws ValidationError for an invalid priority', () => {
-    expect(() => recommendModel({ priority: 'invalid' as any })).toThrow();
+    expect(() => recommendModel({ priority: 'invalid' as any })).toThrow(ValidationError);
   });
 });

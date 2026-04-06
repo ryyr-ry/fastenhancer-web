@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { createDenoiser } from '../../src/api/index.js';
 import type { WasmInstance, Model } from '../../src/api/index.js';
+import { DestroyedError, ModelInitError } from '../../src/api/errors.js';
 import { loadRealWasm, loadRealWeightData, createRealModel } from '../helpers/real-model.js';
 
 let sharedWasm: WasmInstance;
@@ -26,10 +27,10 @@ describe('Lifecycle robustness (real WASM)', () => {
   it('throws on every operation after destroy', async () => {
     const d = await createDenoiser({ model: freshModel(), weightData: sharedWeightData });
     d.destroy();
-    expect(() => d.processFrame(new Float32Array(512))).toThrow();
-    expect(() => { d.bypass = true; }).toThrow();
-    expect(() => { d.agcEnabled = false; }).toThrow();
-    expect(() => { d.hpfEnabled = false; }).toThrow();
+    expect(() => d.processFrame(new Float32Array(512))).toThrow(DestroyedError);
+    expect(() => { d.bypass = true; }).toThrow(DestroyedError);
+    expect(() => { d.agcEnabled = false; }).toThrow(DestroyedError);
+    expect(() => { d.hpfEnabled = false; }).toThrow(DestroyedError);
   });
 
   it('survives rapid create/destroy cycles (10 times)', async () => {
@@ -70,14 +71,14 @@ describe('Lifecycle robustness (real WASM)', () => {
     const d = await createDenoiser({ model: freshModel(), weightData: sharedWeightData });
     d[Symbol.dispose]();
     expect(d.state).toBe('destroyed');
-    expect(() => d.processFrame(new Float32Array(512))).toThrow();
+    expect(() => d.processFrame(new Float32Array(512))).toThrow(DestroyedError);
   });
 
   it('throws ModelInitError for corrupted weightData', async () => {
     const corrupted = new ArrayBuffer(24);
     await expect(
       createDenoiser({ model: freshModel(), weightData: corrupted }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(ModelInitError);
   });
 
   it('throws ModelInitError for weightData with invalid CRC32', async () => {
@@ -87,14 +88,14 @@ describe('Lifecycle robustness (real WASM)', () => {
     tampered[valid.length - 1] ^= 0xff;
     await expect(
       createDenoiser({ model: freshModel(), weightData: tampered.buffer }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(ModelInitError);
   });
 
   it('throws ModelInitError for weightData that exceeds heap size', async () => {
     const huge = new ArrayBuffer(2 * 1024 * 1024);
     await expect(
       createDenoiser({ model: freshModel(), weightData: huge }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(ModelInitError);
   });
 });
 

@@ -11,7 +11,7 @@ export default defineConfig({
     exclude: [],
     coverage: {
       provider: 'v8',
-      include: ['src/**/*.ts'],
+      include: ['src/**/*.ts', 'src/**/*.js'],
     },
     testTimeout: 30000,
     hookTimeout: 30000,

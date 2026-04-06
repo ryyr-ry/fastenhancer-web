@@ -69,7 +69,7 @@ describe('getModelConfig', () => {
   });
 
   it('throws for an invalid size', () => {
-    expect(() => getModelConfig('huge' as any)).toThrow();
-    expect(() => getModelConfig('' as any)).toThrow();
+    expect(() => getModelConfig('huge' as any)).toThrow(/Unknown model size/);
+    expect(() => getModelConfig('' as any)).toThrow(/Unknown model size/);
   });
 });
