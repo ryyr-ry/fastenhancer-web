@@ -75,7 +75,7 @@ export function useHookDemoController(): HookDemoController {
       void playbackRef.current.cleanup()
       playbackRef.current = null
     }
-  }, [outputStream, volume])
+  }, [outputStream])
 
   useEffect(() => {
     playbackRef.current?.setVolume(volume)
