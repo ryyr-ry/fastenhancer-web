@@ -87,6 +87,8 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
     this._consecutiveSuccesses = 0;
     this._autoPassthrough = false;
     this._probeCounter = 0;
+    this._backgroundMode = false;
+    this._overrunThreshold = OVERRUN_THRESHOLD;
     this._inputBuffer = new Float32Array(this._hopSize + QUANTUM);
     this._inputWritePos = 0;
 
@@ -157,6 +159,9 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
       case 'set_bypass':
         this._bypass = !!msg.enabled;
         break;
+      case 'set_background_mode':
+        this._handleBackgroundMode(!!msg.enabled);
+        break;
       case 'get_state':
         this.port.postMessage({
           type: 'state',
@@ -169,6 +174,18 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
           autoPassthrough: this._autoPassthrough,
         });
         break;
+    }
+  }
+
+  _handleBackgroundMode(enabled) {
+    this._backgroundMode = enabled;
+    if (enabled) {
+      this._overrunThreshold = OVERRUN_THRESHOLD * 4;
+    } else {
+      this._overrunThreshold = OVERRUN_THRESHOLD;
+      if (this._autoPassthrough) {
+        this._probeCounter = PROBE_INTERVAL - 1;
+      }
     }
   }
 
@@ -438,7 +455,7 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
     if (elapsed > this._budgetMs) {
       this._consecutiveOverruns++;
       this._consecutiveSuccesses = 0;
-      if (this._consecutiveOverruns >= OVERRUN_THRESHOLD) {
+      if (this._consecutiveOverruns >= this._overrunThreshold) {
         this._autoPassthrough = true;
         this._consecutiveOverruns = 0;
         this._probeCounter = 0;

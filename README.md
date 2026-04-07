@@ -203,6 +203,7 @@ const {
 | `options.audioConstraints` | `MediaTrackConstraints` | Custom constraints for auto-getUserMedia |
 | `options.onWarning` | `(msg: string) => void` | Warning callback |
 | `options.onError` | `(err: Error) => void` | Error callback |
+| `options.keepAliveInBackground` | `boolean` | Keep audio alive when app is backgrounded (mobile) |
 
 **Features:**
 - `start()` with no arguments automatically acquires microphone via getUserMedia
@@ -371,6 +372,29 @@ worker-src blob:;
 - `blob:` — for default worklet loading (not needed if using `workletUrl` option)
 
 </details>
+
+---
+
+## 📱 Background Audio (Mobile)
+
+On mobile, switching to another app may suspend the browser's audio processing. Enable `keepAliveInBackground` to maintain audio continuity:
+
+```typescript
+// Layer 3 — React Hook
+const denoiser = useDenoiser('small', { keepAliveInBackground: true });
+
+// Layer 2 — Stream API
+const sd = await model.createStreamDenoiser(mic, { keepAliveInBackground: true });
+```
+
+**What it does:**
+- Creates a silent oscillator to keep AudioContext active
+- Registers [Media Session API](https://developer.mozilla.org/docs/Web/API/Media_Session_API) as live audio — prevents OS from killing the audio pipeline
+- Blocks pause/stop actions so users can't accidentally interrupt processing
+- Relaxes auto-bypass thresholds while in background (4× tolerance)
+- Automatically resumes AudioContext on foreground return
+
+> **Note:** Effectiveness varies by browser and OS. Chrome/Brave on Android benefit the most. iOS Safari may still suspend audio despite these hints.
 
 ---
 

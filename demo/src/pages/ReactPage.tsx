@@ -132,6 +132,15 @@ export function ReactPage() {
             />
             {t('common.bypass')}
           </label>
+          <label className="demo__toggle">
+            <input
+              type="checkbox"
+              checked={c.keepAlive}
+              disabled={active}
+              onChange={(e) => c.setKeepAlive(e.target.checked)}
+            />
+            {t('common.keepAlive')}
+          </label>
           <label className="demo__volume">
             {t('common.vol')}
             <input

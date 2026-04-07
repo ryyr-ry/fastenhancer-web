@@ -35,6 +35,8 @@ export interface UseDenoiserOptions {
   onWarning?: (message: string) => void;
   /** Error callback */
   onError?: (error: Error) => void;
+  /** Keep audio processing alive when app goes to background (mobile) */
+  keepAliveInBackground?: boolean;
 }
 
 export interface UseDenoiserReturn {
@@ -185,6 +187,7 @@ export function useDenoiser(
       const sd = await model.createStreamDenoiser(stream, {
         workletUrl: opts?.workletUrl,
         onWarning: (msg: string) => optionsRef.current?.onWarning?.(msg),
+        keepAliveInBackground: opts?.keepAliveInBackground,
         onDestroy: () => {
           if (mountedRef.current && !destroyedRef.current) {
             streamDenoiserRef.current = null;

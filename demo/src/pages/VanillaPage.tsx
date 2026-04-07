@@ -42,6 +42,7 @@ export function VanillaPage() {
   const [modelSize, setModelSize] = useState<ModelSize>('small')
   const [volume, setVolume] = useState(0.8)
   const [bypass, setBypass] = useState(false)
+  const [keepAlive, setKeepAlive] = useState(false)
   const [status, setStatus] = useState<'idle' | 'loading' | 'processing' | 'error'>('idle')
   const [warning, setWarning] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -97,6 +98,7 @@ export function VanillaPage() {
       const sd = await model.createStreamDenoiser(session.stream, {
         workletUrl: './assets/worklet/processor.js',
         onWarning: (msg) => setWarning(msg),
+        keepAliveInBackground: keepAlive,
       })
 
       sd.bypass = bypass
@@ -109,7 +111,7 @@ export function VanillaPage() {
       setErrorMessage(formatDemoError(err, t))
       await cleanup()
     }
-  }, [bypass, cleanup, input, modelSize, volume, t])
+  }, [bypass, cleanup, input, modelSize, volume, keepAlive, t])
 
   const stop = useCallback(async () => {
     await cleanup()
@@ -240,6 +242,15 @@ export function VanillaPage() {
               onChange={(e) => setBypass(e.target.checked)}
             />
             {t('common.bypass')}
+          </label>
+          <label className="demo__toggle">
+            <input
+              type="checkbox"
+              checked={keepAlive}
+              disabled={active}
+              onChange={(e) => setKeepAlive(e.target.checked)}
+            />
+            {t('common.keepAlive')}
           </label>
           <label className="demo__volume">
             {t('common.vol')}

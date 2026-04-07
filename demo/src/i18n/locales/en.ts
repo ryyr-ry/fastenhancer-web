@@ -16,6 +16,7 @@ export const en = {
   'common.start': '▶ Start',
   'common.stop': '■ Stop',
   'common.bypass': 'Bypass',
+  'common.keepAlive': 'Keep Alive (BG)',
   'common.vol': 'Vol',
   'common.inputNoisy': 'Input (noisy)',
   'common.outputClean': 'Output (clean)',

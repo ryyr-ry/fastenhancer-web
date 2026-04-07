@@ -44,6 +44,8 @@ export interface StreamDenoiserOptions {
   onAutoBypass?: (enabled: boolean) => void;
   /** Called when the denoiser is unexpectedly destroyed (e.g., AudioContext closed externally) */
   onDestroy?: () => void;
+  /** Keep audio processing alive when app goes to background (mobile). Creates silent AudioContext output + Media Session hint. */
+  keepAliveInBackground?: boolean;
 }
 
 /** Return type of createStreamDenoiser */
@@ -259,6 +261,77 @@ export async function createStreamDenoiser(
     throw err;
   }
 
+  // ── keepAliveInBackground: silent oscillator + Media Session + visibilitychange ──
+  let keepAliveOscillator: OscillatorNode | null = null;
+  let keepAliveGain: GainNode | null = null;
+  let visibilityChangeHandler: (() => void) | null = null;
+
+  if (options.keepAliveInBackground) {
+    try {
+      const osc = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      gain.gain.value = 0;
+      osc.connect(gain);
+      gain.connect(audioContext.destination);
+      osc.start();
+      keepAliveOscillator = osc;
+      keepAliveGain = gain;
+    } catch (e) {
+      emitWarning(
+        `keepAliveInBackground: failed to create silent oscillator: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+      try {
+        const ms = navigator.mediaSession;
+        if (typeof MediaMetadata !== 'undefined') {
+          ms.metadata = new MediaMetadata({
+            title: 'Active Call',
+            artist: 'fastenhancer-web',
+          });
+        }
+        ms.playbackState = 'playing';
+
+        // Signal live stream — prevents seek UI on supporting browsers
+        if (typeof ms.setPositionState === 'function') {
+          try { ms.setPositionState({ duration: Infinity, position: 0, playbackRate: 1 }); } catch (_) { /* noop */ }
+        }
+
+        // Block pause action to prevent user from accidentally stopping the denoiser
+        if (typeof ms.setActionHandler === 'function') {
+          try { ms.setActionHandler('pause', () => { /* intentionally blocked */ }); } catch (_) { /* noop */ }
+          try { ms.setActionHandler('stop', () => { /* intentionally blocked */ }); } catch (_) { /* noop */ }
+          try { ms.setActionHandler('play', () => { audioContext.resume().catch(() => { /* noop */ }); }); } catch (_) { /* noop */ }
+        }
+      } catch (e) {
+        emitWarning(
+          `keepAliveInBackground: failed to set Media Session: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+    }
+
+    if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+      visibilityChangeHandler = () => {
+        if (currentState === 'destroyed') return;
+        const hidden = document.visibilityState === 'hidden';
+        try {
+          workletNode.port.postMessage({ type: 'set_background_mode', enabled: hidden });
+        } catch (_) {
+          // Port may be closed during teardown
+        }
+        if (!hidden) {
+          audioContext.resume().catch((resumeErr) => {
+            emitWarning(
+              `keepAliveInBackground: AudioContext.resume() failed on foreground return: ${resumeErr instanceof Error ? resumeErr.message : String(resumeErr)}`,
+            );
+          });
+        }
+      };
+      document.addEventListener('visibilitychange', visibilityChangeHandler);
+    }
+  }
+
   let currentState: StreamDenoiserState = 'running';
   let bypassMode = false;
   let autoPassthroughMode = false;
@@ -417,6 +490,33 @@ export async function createStreamDenoiser(
 
         try { workletNode.port.close(); } catch (e) {
           emitWarning(`workletNode.port.close() failed during destroy: ${e instanceof Error ? e.message : String(e)}`);
+        }
+
+        // Clean up keepAliveInBackground resources
+        if (keepAliveOscillator) {
+          try { keepAliveOscillator.stop(); } catch (_) { /* may already be stopped */ }
+          try { keepAliveOscillator.disconnect(); } catch (_) { /* noop */ }
+          keepAliveOscillator = null;
+        }
+        if (keepAliveGain) {
+          try { keepAliveGain.disconnect(); } catch (_) { /* noop */ }
+          keepAliveGain = null;
+        }
+        if (visibilityChangeHandler && typeof document !== 'undefined') {
+          try { document.removeEventListener('visibilitychange', visibilityChangeHandler); } catch (_) { /* noop */ }
+          visibilityChangeHandler = null;
+        }
+        if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+          try {
+            const ms = navigator.mediaSession;
+            ms.playbackState = 'none';
+            ms.metadata = null;
+            if (typeof ms.setActionHandler === 'function') {
+              try { ms.setActionHandler('pause', null); } catch (_) { /* noop */ }
+              try { ms.setActionHandler('stop', null); } catch (_) { /* noop */ }
+              try { ms.setActionHandler('play', null); } catch (_) { /* noop */ }
+            }
+          } catch (_) { /* noop */ }
         }
 
         await closeOwnedAudioContext(audioContext, 'AudioContext.close() failed during destroy');

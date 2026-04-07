@@ -133,6 +133,7 @@ const {
 | `options.audioConstraints` | `MediaTrackConstraints` | 自動 getUserMedia 時のオーディオ制約 |
 | `options.onWarning` | `(msg: string) => void` | 警告コールバック |
 | `options.onError` | `(err: Error) => void` | エラーコールバック |
+| `options.keepAliveInBackground` | `boolean` | バックグラウンド時も音声処理を維持（モバイル向け） |
 
 **主な特性:**
 - `start()` 引数なしでマイクを自動取得（getUserMedia を内部で呼び出し）
@@ -301,6 +302,29 @@ worker-src blob:;
 - `blob:` — デフォルトの worklet 読み込みに必要（`workletUrl` 使用時は不要）
 
 </details>
+
+---
+
+## 📱 バックグラウンド音声（モバイル対応）
+
+モバイルでアプリを切り替えると、ブラウザの音声処理が中断されることがあります。`keepAliveInBackground` を有効にすると音声の連続性を維持できます：
+
+```typescript
+// Layer 3 — React Hook
+const denoiser = useDenoiser('small', { keepAliveInBackground: true });
+
+// Layer 2 — Stream API
+const sd = await model.createStreamDenoiser(mic, { keepAliveInBackground: true });
+```
+
+**動作内容：**
+- サイレントオシレーターで AudioContext をアクティブに維持
+- [Media Session API](https://developer.mozilla.org/docs/Web/API/Media_Session_API) にライブ音声として登録 — OS による音声パイプラインの強制停止を防止
+- 一時停止/停止アクションをブロックし、誤操作による処理中断を防止
+- バックグラウンド中はオーバーラン検出しきい値を 4 倍に緩和
+- フォアグラウンド復帰時に AudioContext を自動 resume
+
+> **注意:** 効果はブラウザと OS の組み合わせに依存します。Chrome/Brave（Android）で最も効果的です。iOS Safari ではこれらのヒントにもかかわらず音声が中断される場合があります。
 
 ---
 

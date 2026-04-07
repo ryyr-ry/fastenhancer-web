@@ -24,11 +24,13 @@ export interface HookDemoController {
   volume: number
   warning: string | null
   errorMessage: string | null
+  keepAlive: boolean
   setSourceMode: (mode: DemoSourceMode) => Promise<void>
   setSampleId: (sampleId: SampleId) => Promise<void>
   setModelSize: (modelSize: ModelSize) => Promise<void>
   setVolume: (volume: number) => void
   setBypass: (value: boolean) => void
+  setKeepAlive: (value: boolean) => void
   startProcessing: () => Promise<void>
   stopProcessing: () => Promise<void>
 }
@@ -41,6 +43,7 @@ export function useHookDemoController(): HookDemoController {
   const [volume, setVolume] = useState(0.8)
   const [warning, setWarning] = useState<string | null>(null)
   const [localError, setLocalError] = useState<string | null>(null)
+  const [keepAlive, setKeepAlive] = useState(false)
 
   const sampleSessionRef = useRef<InputSession | null>(null)
   const playbackRef = useRef<AudioPlayback | null>(null)
@@ -58,8 +61,9 @@ export function useHookDemoController(): HookDemoController {
       } as MediaTrackConstraints,
       onWarning: (message: string) => setWarning(message),
       onError: (error: Error) => setLocalError(formatDemoError(error, t)),
+      keepAliveInBackground: keepAlive,
     }),
-    [t],
+    [t, keepAlive],
   )
 
   const { state, error, inputStream, outputStream, bypass, start, stop, setBypass } = useDenoiser(
@@ -182,11 +186,13 @@ export function useHookDemoController(): HookDemoController {
     volume,
     warning,
     errorMessage,
+    keepAlive,
     setSourceMode,
     setSampleId,
     setModelSize: handleSetModelSize,
     setVolume,
     setBypass,
+    setKeepAlive,
     startProcessing,
     stopProcessing,
   }

@@ -295,4 +295,208 @@ describe('createStreamDenoiser', () => {
       sd.destroy();
     });
   });
+
+  describe('keepAliveInBackground', () => {
+    let mockOscillator: any;
+    let mockGainNode: any;
+    let mockDestination: any;
+    let documentListeners: Map<string, Set<(...args: any[]) => void>>;
+    let savedDocument: any;
+    let savedMediaMetadata: any;
+    let navigatorDescriptor: PropertyDescriptor | undefined;
+    let mockMediaSession: any;
+
+    beforeEach(() => {
+      savedDocument = (globalThis as any).document;
+      savedMediaMetadata = (globalThis as any).MediaMetadata;
+      navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+
+      mockOscillator = {
+        connect: vi.fn(),
+        disconnect: vi.fn(),
+        start: vi.fn(),
+        stop: vi.fn(),
+      };
+      mockGainNode = {
+        connect: vi.fn(),
+        disconnect: vi.fn(),
+        gain: { value: 1 },
+      };
+      mockDestination = {};
+      documentListeners = new Map();
+
+      (globalThis as any).document = {
+        visibilityState: 'visible',
+        addEventListener: vi.fn((type: string, handler: (...a: any[]) => void) => {
+          if (!documentListeners.has(type)) documentListeners.set(type, new Set());
+          documentListeners.get(type)!.add(handler);
+        }),
+        removeEventListener: vi.fn((type: string, handler: (...a: any[]) => void) => {
+          documentListeners.get(type)?.delete(handler);
+        }),
+      };
+
+      mockMediaSession = {
+        metadata: null,
+        playbackState: 'none',
+      };
+
+      Object.defineProperty(globalThis, 'navigator', {
+        value: { mediaSession: mockMediaSession },
+        writable: true,
+        configurable: true,
+      });
+
+      (globalThis as any).MediaMetadata = class {
+        title: string;
+        artist: string;
+        constructor(init: { title: string; artist: string }) {
+          this.title = init.title;
+          this.artist = init.artist;
+        }
+      };
+    });
+
+    afterEach(() => {
+      if (savedDocument !== undefined) {
+        (globalThis as any).document = savedDocument;
+      } else {
+        delete (globalThis as any).document;
+      }
+      if (navigatorDescriptor) {
+        Object.defineProperty(globalThis, 'navigator', navigatorDescriptor);
+      } else {
+        delete (globalThis as any).navigator;
+      }
+      if (savedMediaMetadata !== undefined) {
+        (globalThis as any).MediaMetadata = savedMediaMetadata;
+      } else {
+        delete (globalThis as any).MediaMetadata;
+      }
+    });
+
+    function keepAliveCtx(overrides?: Record<string, any>): any {
+      return mockCtx({
+        createOscillator: vi.fn(() => mockOscillator),
+        createGain: vi.fn(() => mockGainNode),
+        destination: mockDestination,
+        ...overrides,
+      });
+    }
+
+    it('creates silent oscillator connected through gain to destination', async () => {
+      const ctx = keepAliveCtx();
+      const sd = await createWithReady(opts(ctx, { keepAliveInBackground: true }));
+      expect(ctx.createOscillator).toHaveBeenCalled();
+      expect(ctx.createGain).toHaveBeenCalled();
+      expect(mockGainNode.gain.value).toBe(0);
+      expect(mockOscillator.connect).toHaveBeenCalledWith(mockGainNode);
+      expect(mockGainNode.connect).toHaveBeenCalledWith(mockDestination);
+      expect(mockOscillator.start).toHaveBeenCalled();
+      sd.destroy();
+    });
+
+    it('registers visibilitychange listener on document', async () => {
+      const ctx = keepAliveCtx();
+      const sd = await createWithReady(opts(ctx, { keepAliveInBackground: true }));
+      expect((globalThis as any).document.addEventListener).toHaveBeenCalledWith(
+        'visibilitychange',
+        expect.any(Function),
+      );
+      sd.destroy();
+    });
+
+    it('posts set_background_mode when document becomes hidden', async () => {
+      const ctx = keepAliveCtx();
+      const sd = await createWithReady(opts(ctx, { keepAliveInBackground: true }));
+      activeMockPort.postMessage.mockClear();
+
+      (globalThis as any).document.visibilityState = 'hidden';
+      const handlers = documentListeners.get('visibilitychange');
+      handlers?.forEach((h) => h());
+
+      expect(activeMockPort.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'set_background_mode', enabled: true }),
+      );
+      sd.destroy();
+    });
+
+    it('posts set_background_mode disabled and resumes AudioContext when returning to foreground', async () => {
+      const ctx = keepAliveCtx();
+      const sd = await createWithReady(opts(ctx, { keepAliveInBackground: true }));
+      activeMockPort.postMessage.mockClear();
+      ctx.resume.mockClear();
+
+      (globalThis as any).document.visibilityState = 'visible';
+      const handlers = documentListeners.get('visibilitychange');
+      handlers?.forEach((h) => h());
+
+      expect(activeMockPort.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'set_background_mode', enabled: false }),
+      );
+      expect(ctx.resume).toHaveBeenCalled();
+      sd.destroy();
+    });
+
+    it('sets mediaSession metadata and playbackState when available', async () => {
+      const ctx = keepAliveCtx();
+      const sd = await createWithReady(opts(ctx, { keepAliveInBackground: true }));
+      expect(mockMediaSession.metadata).not.toBeNull();
+      expect(mockMediaSession.playbackState).toBe('playing');
+      sd.destroy();
+    });
+
+    it('cleans up oscillator, gain, visibilitychange listener, and mediaSession on destroy', async () => {
+      const ctx = keepAliveCtx();
+      const sd = await createWithReady(opts(ctx, { keepAliveInBackground: true }));
+      await sd.destroyAsync();
+
+      expect(mockOscillator.stop).toHaveBeenCalled();
+      expect(mockOscillator.disconnect).toHaveBeenCalled();
+      expect(mockGainNode.disconnect).toHaveBeenCalled();
+      expect((globalThis as any).document.removeEventListener).toHaveBeenCalledWith(
+        'visibilitychange',
+        expect.any(Function),
+      );
+      expect(mockMediaSession.playbackState).toBe('none');
+    });
+
+    it('does not create keepalive resources when option is false', async () => {
+      const ctx = keepAliveCtx();
+      const sd = await createWithReady(opts(ctx, { keepAliveInBackground: false }));
+      expect(ctx.createOscillator).not.toHaveBeenCalled();
+      expect(ctx.createGain).not.toHaveBeenCalled();
+      sd.destroy();
+    });
+
+    it('does not create keepalive resources when option is omitted', async () => {
+      const ctx = keepAliveCtx();
+      const sd = await createWithReady(opts(ctx));
+      expect(ctx.createOscillator).not.toHaveBeenCalled();
+      expect(ctx.createGain).not.toHaveBeenCalled();
+      sd.destroy();
+    });
+
+    it('does not throw in SSR environment without document', async () => {
+      delete (globalThis as any).document;
+      const ctx = keepAliveCtx();
+      const sd = await createWithReady(opts(ctx, { keepAliveInBackground: true }));
+      expect(sd.state).toBe('running');
+      // Oscillator is still created (AudioContext is available, document is not)
+      expect(ctx.createOscillator).toHaveBeenCalled();
+      sd.destroy();
+    });
+
+    it('does not throw when navigator.mediaSession is unavailable', async () => {
+      Object.defineProperty(globalThis, 'navigator', {
+        value: {},
+        writable: true,
+        configurable: true,
+      });
+      const ctx = keepAliveCtx();
+      const sd = await createWithReady(opts(ctx, { keepAliveInBackground: true }));
+      expect(sd.state).toBe('running');
+      sd.destroy();
+    });
+  });
 });

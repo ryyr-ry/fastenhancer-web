@@ -16,6 +16,7 @@ export const ja = {
   'common.start': '▶ 開始',
   'common.stop': '■ 停止',
   'common.bypass': 'バイパス',
+  'common.keepAlive': 'バックグラウンド維持',
   'common.vol': '音量',
   'common.inputNoisy': '入力（ノイズあり）',
   'common.outputClean': '出力（除去済み）',
