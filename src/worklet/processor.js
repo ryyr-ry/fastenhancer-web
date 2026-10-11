@@ -20,21 +20,19 @@ const DEFAULT_HOP_SIZE = 512;
 const QUANTUM = 128;
 const MAX_STORED_TIMES = 2000;
 const DEFAULT_STATS_INTERVAL = 100;
-const OVERRUN_THRESHOLD = 5;
-const RECOVERY_THRESHOLD = 3;
-const PROBE_INTERVAL = 16;
+const LOAD_WINDOW_MS = 200;
+const ENTRY_LOAD = 1.10;
+const RECOVERY_LOAD = 1.05;
+const SLOW_FRAME_LOAD = 1.05;
+const SEVERE_FRAME_LOAD = 2;
+const SEVERE_FRAMES = 3;
+const RECOVERY_FRAMES = 4;
+const INITIAL_PROBE_MS = 32;
+const MAX_PROBE_MS = 128;
 const NONZERO_THRESHOLD = 1e-8;
 
 const _perf = typeof performance !== 'undefined' ? performance : null;
 const _dateNow = typeof Date !== 'undefined' ? Date.now : null;
-
-function _now() {
-  if (_perf) {
-    const t = _perf.now();
-    if (t > 0) return t;
-  }
-  return _dateNow ? _dateNow() : currentTime * 1000;
-}
 
 let _timerChecked = false;
 let _perfNowFrozen = false;
@@ -67,9 +65,122 @@ function _checkTimerAcrossCallbacks() {
   _perfNowFrozen = false;
 }
 
-function _nowReliable() {
-  if (!_perfNowFrozen && _perf) return _perf.now();
-  return _dateNow ? _dateNow() : currentTime * 1000;
+// Keep the policy in the shipped processor: tests exercise this same code,
+// rather than a separate scheduler with different behavior.
+class ProcessingMonitor {
+  constructor(budgetMs) {
+    this.budgetMs = budgetMs;
+    this.background = false;
+    this._times = new Float64Array(Math.ceil(LOAD_WINDOW_MS * 4 / budgetMs));
+    this.reset();
+  }
+
+  reset() {
+    this.mode = 'processing';
+    this.averageMs = 0;
+    this._clearWindow();
+    this._probeDelayMs = INITIAL_PROBE_MS;
+    this._probeFrames = 0;
+    this._trialCount = 0;
+    this._trialSum = 0;
+  }
+
+  _clearWindow() {
+    this._windowFrames = Math.ceil(LOAD_WINDOW_MS * (this.background ? 4 : 1) / this.budgetMs);
+    this._times.fill(0);
+    this._count = 0;
+    this._index = 0;
+    this._sum = 0;
+    this._slowCount = 0;
+    this._debtMs = 0;
+    this._severeCount = 0;
+    this._trendFrames = 0;
+  }
+
+  setBackground(enabled) {
+    if (this.background === enabled) return;
+    this.background = enabled;
+    this._clearWindow();
+    if (!enabled && this.mode !== 'processing') {
+      this.mode = 'bypass';
+      this._probeFrames = 0; // Retry on the very next frame after foreground return.
+      this._probeDelayMs = INITIAL_PROBE_MS;
+    }
+  }
+
+  shouldProcess() {
+    if (this.mode !== 'bypass') return true;
+    if (--this._probeFrames > 0) return false;
+    this.mode = 'recovering';
+    this._trialCount = 0;
+    this._trialSum = 0;
+    return true;
+  }
+
+  _waitForProbe() {
+    this.mode = 'bypass';
+    this._probeFrames = Math.ceil(this._probeDelayMs / this.budgetMs);
+  }
+
+  fail() {
+    if (this.mode === 'processing') this._probeDelayMs = INITIAL_PROBE_MS;
+    else this._probeDelayMs = Math.min(MAX_PROBE_MS, this._probeDelayMs * 2);
+    this._waitForProbe();
+  }
+
+  record(ms) {
+    // A wall clock can move backwards and some worklets expose a frozen timer.
+    // Unknown timing is not evidence of either overload or successful recovery.
+    if (!Number.isFinite(ms) || ms < 0) {
+      if (this.mode === 'recovering') this.fail();
+      else { this._clearWindow(); this.averageMs = 0; }
+      return;
+    }
+    const budget = this.budgetMs;
+    if (this.mode === 'recovering') {
+      this._trialCount++;
+      this._trialSum += ms;
+      this.averageMs = this._trialSum / this._trialCount;
+      // A cold first probe may be slow even though sustained inference fits.
+      // Abort only when the four-frame trial cannot possibly fit its total
+      // budget; otherwise let consecutive frames warm the engine and cache.
+      if (this._trialSum > budget * RECOVERY_LOAD * RECOVERY_FRAMES) {
+        this.fail();
+      } else if (this._trialCount >= RECOVERY_FRAMES) {
+        this.mode = 'processing';
+        this._clearWindow();
+        this._probeDelayMs = INITIAL_PROBE_MS;
+      }
+      return;
+    }
+
+    if (this._count === this._windowFrames) {
+      const old = this._times[this._index];
+      this._sum -= old;
+      if (old > budget * SLOW_FRAME_LOAD) this._slowCount--;
+    } else this._count++;
+    this._times[this._index] = ms;
+    this._index = (this._index + 1) % this._windowFrames;
+    this._sum += ms;
+    if (ms > budget * SLOW_FRAME_LOAD) this._slowCount++;
+    this.averageMs = this._sum / this._count;
+    this._debtMs = Math.min(this._windowFrames * budget, Math.max(0, this._debtMs + ms - budget));
+    this._severeCount = ms >= budget * SEVERE_FRAME_LOAD ? this._severeCount + 1 : 0;
+
+    const highAverage = this._count === this._windowFrames && this.averageMs > budget * ENTRY_LOAD;
+    this._trendFrames = highAverage ? this._trendFrames + 1 : 0;
+    // Mostly slow frames establish overload in one window. More variable load
+    // needs a second window of evidence; it must not evade protection simply
+    // because fast frames keep breaking an overrun streak.
+    const sustained = highAverage
+      && (this._slowCount >= Math.ceil(this._windowFrames * 0.7) || this._trendFrames >= this._windowFrames)
+      && ms > budget * SLOW_FRAME_LOAD;
+    const severe = this._severeCount >= SEVERE_FRAMES * (this.background ? 4 : 1);
+    if ((sustained || severe) && this._debtMs >= budget * 3) {
+      this._probeDelayMs = INITIAL_PROBE_MS;
+      this._waitForProbe();
+    }
+  }
 }
 
 class FastEnhancerProcessor extends AudioWorkletProcessor {
@@ -85,18 +196,19 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
 
     this._hopSize = DEFAULT_HOP_SIZE;
     this._budgetMs = (DEFAULT_HOP_SIZE / 48000) * 1000;
-    this._consecutiveOverruns = 0;
-    this._consecutiveSuccesses = 0;
+    this._monitor = new ProcessingMonitor(this._budgetMs);
     this._autoPassthrough = false;
-    this._probeCounter = 0;
-    this._backgroundMode = false;
-    this._overrunThreshold = OVERRUN_THRESHOLD;
+    this._engineNeedsReset = false;
+    this._warmupFrames = 0;
+    this._wetMix = 1;
+    this._latencySamples = DEFAULT_HOP_SIZE;
+    this._dryDelayPos = 0;
+    this._timingSource = _perf ? 'performance' : _dateNow ? 'date' : 'unavailable';
+    this._audioFrameCount = 0;
+    this._passthroughFrames = 0;
     this._inputWritePos = 0;
 
     this._outputPos = 0;
-    this._lastFramePassthrough = false;
-
-
     this._frameCount = 0;
     this._processingTimes = new Float64Array(MAX_STORED_TIMES);
     this._maxStoredTimes = MAX_STORED_TIMES;
@@ -134,6 +246,17 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
         this._forEachState('_fe_reset');
         this._inputWritePos = 0;
         this._outputPos = this._hopSize;
+        this._dryDelayPos = 0;
+        for (const channel of this._channels) {
+          channel.inputBuffer.fill(0);
+          channel.dryDelayBuffer.fill(0);
+          channel.outputBuffer.fill(0);
+        }
+        this._monitor.reset();
+        this._engineNeedsReset = false;
+        this._warmupFrames = 0;
+        this._wetMix = 1;
+        this._syncAutoPassthrough();
         break;
       case 'get_stats':
         this._sendStats();
@@ -149,7 +272,13 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
         this._sendOutputInfo();
         break;
       case 'set_bypass':
-        this._bypass = !!msg.enabled;
+        if (this._bypass !== !!msg.enabled) {
+          this._bypass = !!msg.enabled;
+          this._monitor.reset();
+          this._engineNeedsReset = true;
+          this._warmupFrames = 2;
+          this._syncAutoPassthrough();
+        }
         break;
       case 'set_background_mode':
         this._handleBackgroundMode(!!msg.enabled);
@@ -164,21 +293,21 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
           initialized: this._initialized,
           destroyed: this._destroyed,
           autoPassthrough: this._autoPassthrough,
+          ...this._monitorStats(),
         });
         break;
     }
   }
 
   _handleBackgroundMode(enabled) {
-    this._backgroundMode = enabled;
-    if (enabled) {
-      this._overrunThreshold = OVERRUN_THRESHOLD * 4;
-    } else {
-      this._overrunThreshold = OVERRUN_THRESHOLD;
-      if (this._autoPassthrough) {
-        this._probeCounter = PROBE_INTERVAL - 1;
-      }
-    }
+    this._monitor.setBackground(enabled);
+  }
+
+  _syncAutoPassthrough() {
+    const enabled = this._monitor.mode !== 'processing';
+    if (enabled === this._autoPassthrough) return;
+    this._autoPassthrough = enabled;
+    this.port.postMessage({ type: 'auto_bypass', enabled, averageMs: this._monitor.averageMs, budgetMs: this._budgetMs });
   }
 
   _forEachState(method, ...args) {
@@ -294,16 +423,20 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
           const statePtr = wasm._fe_init(modelSize, weightPtr, weightLen);
           if (!statePtr) throw new Error('fe_init returned null (weight validation failed?)');
           const hopSize = wasm._fe_get_hop_size(statePtr);
+          const latency = wasm._fe_get_n_fft(statePtr) - hopSize;
           this._channels.push({
             wasm, memory, statePtr,
             inputPtr: wasm._fe_get_input_ptr(statePtr),
             outputPtr: wasm._fe_get_output_ptr(statePtr),
             inputBuffer: new Float32Array(hopSize + QUANTUM),
             passthroughBuffer: new Float32Array(hopSize),
+            dryDelayBuffer: new Float32Array(latency),
+            outputBuffer: new Float32Array(hopSize),
             cachedHeapF32: null,
             cachedBuffer: null,
           });
           this._hopSize = hopSize;
+          this._latencySamples = latency;
           wasm._fe_set_hpf(statePtr, this._hpfEnabled ? 1 : 0);
           wasm._fe_set_agc(statePtr, this._agcEnabled ? 1 : 0);
         } finally {
@@ -313,25 +446,29 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
       const hopSize = this._hopSize;
       this._inputWritePos = 0;
       this._outputPos = hopSize;
-      this._lastFramePassthrough = false;
       this._budgetMs = (hopSize / sampleRate) * 1000;
-      this._consecutiveOverruns = 0;
-      this._consecutiveSuccesses = 0;
+      const background = this._monitor.background;
+      this._monitor = new ProcessingMonitor(this._budgetMs);
+      this._monitor.setBackground(background);
       this._autoPassthrough = false;
-      this._probeCounter = 0;
+      this._engineNeedsReset = false;
+      this._warmupFrames = 0;
+      this._wetMix = 1;
+      this._dryDelayPos = 0;
 
       // Run timer diagnostics during init (avoids busy-waiting inside process())
       _checkTimerAcrossCallbacks();
       if (_perfNowFrozen) {
+        this._timingSource = _dateNow ? 'date' : 'unavailable';
         this.port.postMessage({
           type: 'timer_info',
           perfNowFrozen: true,
-          fallback: _dateNow ? 'Date.now' : 'currentTime',
+          fallback: _dateNow ? 'Date.now' : 'unavailable',
         });
       }
 
       this._initialized = true;
-      this.port.postMessage({ type: 'ready', hopSize, channelCount });
+      this.port.postMessage({ type: 'ready', hopSize, channelCount, latencySamples: this._latencySamples });
     } catch (err) {
       this._releaseStates();
       this.port.postMessage({ type: 'error', message: err.message });
@@ -347,7 +484,8 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
   _sendStats() {
     const count = this._timesCount;
     if (count === 0) {
-      this.port.postMessage({ type: 'stats', frameCount: 0, totalFrames: 0 });
+      this.port.postMessage({ type: 'stats', frameCount: this._frameCount, totalFrames: 0,
+        overBudgetFrames: 0, overBudgetRate: 0, ...this._monitorStats() });
       return;
     }
     const sorted = new Float64Array(count);
@@ -372,7 +510,23 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
       budgetMs,
       droppedFrames: dropped,
       dropRate: dropped / count,
+      // Historical names are retained for compatibility. Timing overruns are
+      // estimates, not observed device underruns or discarded audio frames.
+      overBudgetFrames: dropped,
+      overBudgetRate: dropped / count,
+      ...this._monitorStats(),
     });
+  }
+
+  _monitorStats() {
+    return {
+      performanceMode: this._bypass ? 'manual' : this._monitor.mode,
+      averageProcessingMs: this._monitor.averageMs,
+      budgetMs: this._budgetMs,
+      timingSource: this._timingSource,
+      audioFrames: this._audioFrameCount,
+      passthroughFrames: this._passthroughFrames,
+    };
   }
 
   _sendOutputInfo() {
@@ -390,11 +544,52 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
     });
   }
 
-  _copyInputFrameToOutput(hopSize) {
+  _prepareDryFrame(hopSize) {
+    const latency = this._latencySamples;
     for (const channel of this._channels) {
-      channel.passthroughBuffer.set(channel.inputBuffer.subarray(0, hopSize));
+      const input = channel.inputBuffer;
+      const dry = channel.passthroughBuffer;
+      const delay = channel.dryDelayBuffer;
+      if (latency === hopSize) {
+        dry.set(delay);
+        delay.set(input.subarray(0, hopSize));
+      } else if (latency === 0) {
+        dry.set(input.subarray(0, hopSize));
+      } else {
+        let pos = this._dryDelayPos;
+        for (let i = 0; i < hopSize; i++) {
+          dry[i] = delay[pos];
+          delay[pos] = input[i];
+          pos = (pos + 1) % latency;
+        }
+      }
     }
-    this._lastFramePassthrough = true;
+    if (latency > 0) this._dryDelayPos = (this._dryDelayPos + hopSize) % latency;
+  }
+
+  _renderFrame(hopSize, hasWet) {
+    const targetMix = hasWet && !this._bypass && this._monitor.mode === 'processing' && this._warmupFrames === 0 ? 1 : 0;
+    const startMix = hasWet ? this._wetMix : 0;
+    for (const channel of this._channels) {
+      const output = channel.outputBuffer;
+      const dry = channel.passthroughBuffer;
+      if (targetMix === 0 && startMix === 0) output.set(dry);
+      else {
+        const heap = this._getHeapF32(channel);
+        const offset = channel.outputPtr >> 2;
+        if (targetMix === 1 && startMix === 1) output.set(heap.subarray(offset, offset + hopSize));
+        else {
+          // The two signals share the STFT delay. Use the same ramp on both
+          // channels; probe output stays dry until consecutive recovery passes.
+          for (let i = 0; i < hopSize; i++) {
+            const mix = startMix + (targetMix - startMix) * i / (hopSize - 1);
+            output[i] = dry[i] * (1 - mix) + heap[offset + i] * mix;
+          }
+        }
+      }
+    }
+    this._wetMix = targetMix;
+    if (targetMix === 0 && startMix === 0) this._passthroughFrames++;
   }
 
   _getHeapF32(channel) {
@@ -409,10 +604,8 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
     if (this._statsInterval <= 0) return;
 
     for (const channel of this._channels) {
-      const heapF32 = this._getHeapF32(channel);
-      const outputOffset = channel.outputPtr >> 2;
       for (let i = 0; i < hopSize; i++) {
-        const v = heapF32[outputOffset + i];
+        const v = channel.outputBuffer[i];
         if (v !== v) {
           this._hasNaN = true;
           continue;
@@ -429,8 +622,12 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
   }
 
   _runWasmFrame(hopSize) {
-    this._lastFramePassthrough = false;
-    const t0 = _nowReliable();
+    const perfStart = _perf ? _perf.now() : NaN;
+    const dateStart = _dateNow ? _dateNow() : NaN;
+    if (this._engineNeedsReset) {
+      this._forEachState('_fe_reset');
+      this._engineNeedsReset = false;
+    }
 
     for (const channel of this._channels) {
       const heapF32 = this._getHeapF32(channel);
@@ -438,76 +635,47 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
       channel.wasm._fe_process_inplace(channel.statePtr);
     }
 
-    const elapsed = _nowReliable() - t0;
+    const perfElapsed = _perf ? _perf.now() - perfStart : NaN;
+    const dateElapsed = _dateNow ? _dateNow() - dateStart : NaN;
+    let elapsed = NaN;
+    if (!_perfNowFrozen && Number.isFinite(perfElapsed) && perfElapsed > 0) {
+      elapsed = perfElapsed;
+      this._timingSource = 'performance';
+    } else if (Number.isFinite(dateElapsed) && dateElapsed >= 0) {
+      // performance.now can advance between callbacks yet freeze within one.
+      elapsed = dateElapsed;
+      this._timingSource = 'date';
+    } else {
+      this._timingSource = 'unavailable';
+    }
     this._frameCount++;
-    this._processingTimes[this._timesIndex] = elapsed;
-    this._timesIndex = (this._timesIndex + 1) % this._maxStoredTimes;
-    this._timesCount = Math.min(this._timesCount + 1, this._maxStoredTimes);
-
-    this._updateOutputDiagnostics(hopSize);
-
-    if (this._statsInterval > 0) {
-      this._statsTimer++;
-      if (this._statsTimer >= this._statsInterval) {
-        this._statsTimer = 0;
-        this._sendStats();
-      }
+    if (Number.isFinite(elapsed)) {
+      this._processingTimes[this._timesIndex] = elapsed;
+      this._timesIndex = (this._timesIndex + 1) % this._maxStoredTimes;
+      this._timesCount = Math.min(this._timesCount + 1, this._maxStoredTimes);
     }
 
     return elapsed;
   }
 
-  _handleNormalProcessingResult(elapsed) {
-    if (elapsed > this._budgetMs) {
-      this._consecutiveOverruns++;
-      this._consecutiveSuccesses = 0;
-      if (this._consecutiveOverruns >= this._overrunThreshold) {
-        this._autoPassthrough = true;
-        this._consecutiveOverruns = 0;
-        this._probeCounter = 0;
-        this.port.postMessage({ type: 'auto_bypass', enabled: true });
-      }
-      return;
-    }
-
-    this._consecutiveOverruns = 0;
-  }
-
-  _handleProbeResult(elapsed) {
-    if (elapsed > this._budgetMs) {
-      this._consecutiveSuccesses = 0;
-      return;
-    }
-
-    this._consecutiveSuccesses++;
-    if (this._consecutiveSuccesses >= RECOVERY_THRESHOLD) {
-      this._autoPassthrough = false;
-      this._consecutiveSuccesses = 0;
-      this._consecutiveOverruns = 0;
-      this._probeCounter = 0;
-      this.port.postMessage({ type: 'auto_bypass', enabled: false });
-    }
-  }
-
   _processFrame(hopSize) {
+    this._audioFrameCount++;
+    this._prepareDryFrame(hopSize);
     if (this._bypass) {
-      this._copyInputFrameToOutput(hopSize);
+      this._renderFrame(hopSize, false);
       return;
     }
 
-    if (this._autoPassthrough) {
-      this._probeCounter++;
-      if (this._probeCounter < PROBE_INTERVAL) {
-        this._copyInputFrameToOutput(hopSize);
-        return;
-      }
-
-      this._probeCounter = 0;
-      this._handleProbeResult(this._runWasmFrame(hopSize));
+    if (!this._monitor.shouldProcess()) {
+      this._renderFrame(hopSize, false);
       return;
     }
 
-    this._handleNormalProcessingResult(this._runWasmFrame(hopSize));
+    this._monitor.record(this._runWasmFrame(hopSize));
+    if (this._monitor.mode === 'bypass') this._engineNeedsReset = true;
+    this._renderFrame(hopSize, true);
+    if (this._warmupFrames > 0) this._warmupFrames--;
+    this._syncAutoPassthrough();
   }
 
   process(inputs, outputs) {
@@ -540,8 +708,10 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
       try {
         this._processFrame(hopSize);
       } catch (err) {
-        this._forEachState('_fe_reset');
-        this._copyInputFrameToOutput(hopSize);
+        this._monitor.fail();
+        this._engineNeedsReset = true;
+        this._renderFrame(hopSize, false);
+        this._syncAutoPassthrough();
         this._lastError = err.message || String(err);
         this.port.postMessage({ type: 'process_error', message: this._lastError });
       }
@@ -551,6 +721,11 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
       }
       this._inputWritePos = leftover;
       this._outputPos = 0;
+      this._updateOutputDiagnostics(hopSize);
+      if (this._statsInterval > 0 && ++this._statsTimer >= this._statsInterval) {
+        this._statsTimer = 0;
+        this._sendStats();
+      }
     }
 
     const available = this._outputPos < hopSize ? Math.min(len, hopSize - this._outputPos) : 0;
@@ -559,10 +734,7 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
       output.fill(0);
       const channel = this._channels[c];
       if (!channel || available === 0) continue;
-      const heapF32 = this._getHeapF32(channel);
-      const frame = this._lastFramePassthrough ? channel.passthroughBuffer
-        : heapF32.subarray(channel.outputPtr >> 2, (channel.outputPtr >> 2) + hopSize);
-      output.set(frame.subarray(this._outputPos, this._outputPos + available));
+      output.set(channel.outputBuffer.subarray(this._outputPos, this._outputPos + available));
     }
     this._outputPos += len;
     return true;

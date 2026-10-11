@@ -11,9 +11,9 @@ for (const size of ['tiny', 'base', 'small'] as const) {
         const modulePath = '/dist/api/index.js';
         const { loadModel } = await import(modulePath);
         const model = await loadModel(size, { simd });
-        // Keep DSP correctness independent of CPU timing: four frames cannot
-        // trigger the existing five-overrun real-time fallback policy.
-        const length = 2048;
+        // Two frames cannot trigger the three-frame severe-load protection.
+        // Longer runs and recovery use controlled timing in performance-monitor.spec.ts.
+        const length = 1024;
         const context = new OfflineAudioContext(2, length, 48000);
         const buffer = context.createBuffer(2, length, 48000);
         for (let i = 0; i < length; i++) {

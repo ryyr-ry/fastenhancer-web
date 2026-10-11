@@ -29,6 +29,7 @@ export const en = {
   'common.start': '▶ Start',
   'common.stop': '■ Stop',
   'common.bypass': 'Bypass',
+  'common.autoBypass': 'Noise removal is temporarily paused. Audio continues playing while automatic recovery is checked.',
   'common.keepAlive': 'Keep Alive (BG)',
   'common.vol': 'Vol',
   'common.inputNoisy': 'Input (noisy)',

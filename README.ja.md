@@ -195,6 +195,7 @@ const {
 | `options.audioConstraints` | `MediaTrackConstraints` | 自動 getUserMedia 時のオーディオ制約 |
 | `options.channelCount` | `1 \| 2` | 出力チャンネル数（入力トラックから取得し、不明な場合はモノラル） |
 | `options.onWarning` | `(msg: string) => void` | 警告コールバック |
+| `options.onAutoBypass` | `(enabled: boolean) => void` | 自動保護・復帰の通知（手動バイパスとは独立） |
 | `options.onError` | `(err: Error) => void` | エラーコールバック |
 | `options.keepAliveInBackground` | `boolean` | バックグラウンド時も音声処理を維持（モバイル向け） |
 
@@ -319,7 +320,7 @@ import { WasmLoadError, DestroyedError } from 'fastenhancer-web/errors';
 │  ┌───────────────────────┐  │
 │  │  フレームバッファ       │  │  4 × 128 quantum → 512 サンプル
 │  │  WASM SIMD エンジン    │  │  FFT → Encoder → RNNFormer → Decoder → iFFT
-│  │  フレームドロップ検知   │  │  5 連続ドロップ → 自動バイパス
+│  │  負荷監視・復帰確認    │  │  持続する過負荷 → 未処理音 → 連続確認で復帰
 │  └───────────────────────┘  │
 └─────────────────────────────┘
     │
@@ -337,6 +338,8 @@ import { WasmLoadError, DestroyedError } from 'fastenhancer-web/errors';
 | オーディオチャネル | モノラル・ステレオ — チャンネルごとに独立して処理 |
 | メモリ | 全バッファ初期化時一括確保（実行時 malloc ゼロ） |
 | パッケージサイズ | 全3モデル＋両バリアント埋め込み（tarball 約 1.85 MB）、ツリーシェイキング対応 |
+
+リアルタイム処理の自動保護は、約200 msの平均負荷と超過時間の蓄積で判断します。わずかな超過が5回続いただけでバイパスする方式を改め、重大な遅延が続く場合は早く保護します。32 ms後から復帰を試し、失敗時は最大128 msまで間隔を広げます。4つの連続フレームを確認してからクロスフェードでノイズ除去へ戻します。手動バイパスも含め、未処理音と処理音のSTFT遅延をそろえます。React・ストリームのデモには自動保護中の表示を追加しています。[設計と検証の詳細](docs/performance-monitoring.md)をご参照ください。
 
 ---
 
@@ -388,7 +391,7 @@ const sd = await model.createStreamDenoiser(mic, { keepAliveInBackground: true }
 - サイレントオシレーターで AudioContext をアクティブに維持
 - [Media Session API](https://developer.mozilla.org/docs/Web/API/Media_Session_API) にライブ音声として登録 — OS による音声パイプラインの強制停止を防止
 - 一時停止/停止アクションをブロックし、誤操作による処理中断を防止
-- バックグラウンド中はオーバーラン検出しきい値を 4 倍に緩和
+- バックグラウンド中は過負荷の確認期間と重大な遅延の連続回数を4倍に緩和
 - フォアグラウンド復帰時に AudioContext を自動 resume
 
 > **注意:** 効果はブラウザと OS の組み合わせに依存します。Chrome/Brave（Android）で最も効果的です。iOS Safari ではこれらのヒントにもかかわらず音声が中断される場合があります。
@@ -445,7 +448,7 @@ bunx playwright test
 | TypeScript unit / adversarial | Node.js | vitest | API・worklet・ライフサイクル・左右の独立性・ファイル処理 |
 | Browser E2E | Chromium / Firefox / WebKit | Playwright | AudioWorklet と録音済み音声用module Workerの統合 |
 
-ステレオ・録音済み音声の実装では、**単体・異常系266件**と**Chromiumの選択した14件**が通過しています。本番用にビルドしたデモでも、44.1 kHzのステレオ音声の選択・処理・WAV保存を確認しました。C・WASM・全ブラウザのテストをすべて再実行した結果ではありません。
+ステレオ・録音済み音声・性能監視の実装では、**単体・異常系279件**と**Chromiumの選択した26件**が通過しています。Base・Smallのscalar/SIMDの性能試験と、ステレオでの負荷変動・復帰も含みます。本番用にビルドしたデモでも、44.1 kHzのステレオ音声の選択・処理・WAV保存を確認しました。C・WASM・全ブラウザのテストをすべて再実行した結果ではありません。
 
 ---
 

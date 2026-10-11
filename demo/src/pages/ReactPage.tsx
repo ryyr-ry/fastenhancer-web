@@ -51,6 +51,7 @@ export function ReactPage() {
 
       {c.errorMessage && <div className="demo__alert demo__alert--error">{c.errorMessage}</div>}
       {c.warning && <div className="demo__alert demo__alert--warn">{c.warning}</div>}
+      {active && c.autoPassthrough && <div role="status" className="demo__alert demo__alert--warn">{t('common.autoBypass')}</div>}
 
       <div className="demo__controls">
         <div className="demo__row">

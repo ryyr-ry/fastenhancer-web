@@ -60,7 +60,7 @@ export interface StreamDenoiser {
   readonly state: StreamDenoiserState;
   /** User-set bypass mode (does not reflect auto-passthrough) */
   bypass: boolean;
-  /** Whether the worklet auto-bypassed due to processing errors */
+  /** Whether the worklet is bypassing/recovering due to sustained load or processing errors */
   readonly autoPassthrough: boolean;
   /** AGC enabled/disabled */
   agcEnabled: boolean;
@@ -82,6 +82,13 @@ export interface WorkletStateResponse {
   initialized: boolean;
   destroyed: boolean;
   autoPassthrough: boolean;
+  /** Optional for compatibility with older self-hosted worklets. */
+  performanceMode?: 'processing' | 'bypass' | 'recovering' | 'manual';
+  averageProcessingMs?: number;
+  budgetMs?: number;
+  timingSource?: 'performance' | 'date' | 'unavailable';
+  audioFrames?: number;
+  passthroughFrames?: number;
 }
 
 /**

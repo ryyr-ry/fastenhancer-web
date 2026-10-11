@@ -20,6 +20,7 @@ export interface HookDemoController {
   outputStream: MediaStream | null
   state: 'idle' | 'loading' | 'processing' | 'error' | 'destroyed'
   bypass: boolean
+  autoPassthrough: boolean
   modelSize: ModelSize
   volume: number
   warning: string | null
@@ -44,6 +45,7 @@ export function useHookDemoController(): HookDemoController {
   const [warning, setWarning] = useState<string | null>(null)
   const [localError, setLocalError] = useState<string | null>(null)
   const [keepAlive, setKeepAlive] = useState(false)
+  const [autoPassthrough, setAutoPassthrough] = useState(false)
 
   const sampleSessionRef = useRef<InputSession | null>(null)
   const playbackRef = useRef<AudioPlayback | null>(null)
@@ -60,6 +62,7 @@ export function useHookDemoController(): HookDemoController {
         sampleRate: 48_000,
       } as MediaTrackConstraints,
       onWarning: (message: string) => setWarning(message),
+      onAutoBypass: setAutoPassthrough,
       onError: (error: Error) => setLocalError(formatDemoError(error, t)),
       keepAliveInBackground: keepAlive,
     }),
@@ -111,6 +114,7 @@ export function useHookDemoController(): HookDemoController {
 
   const stopProcessing = useCallback(async () => {
     stop()
+    setAutoPassthrough(false)
     setWarning(null)
     setLocalError(null)
     if (playbackRef.current) {
@@ -121,6 +125,7 @@ export function useHookDemoController(): HookDemoController {
   }, [stop, cleanupSampleSession])
 
   const startProcessing = useCallback(async () => {
+    setAutoPassthrough(false)
     setWarning(null)
     setLocalError(null)
 
@@ -182,6 +187,7 @@ export function useHookDemoController(): HookDemoController {
     outputStream,
     state,
     bypass,
+    autoPassthrough,
     modelSize,
     volume,
     warning,

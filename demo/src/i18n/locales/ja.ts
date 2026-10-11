@@ -29,6 +29,7 @@ export const ja = {
   'common.start': '▶ 開始',
   'common.stop': '■ 停止',
   'common.bypass': 'バイパス',
+  'common.autoBypass': 'ノイズ除去を一時停止しています。音声は流れ続け、自動で再開を確認しています。',
   'common.keepAlive': 'バックグラウンド維持',
   'common.vol': '音量',
   'common.inputNoisy': '入力（ノイズあり）',

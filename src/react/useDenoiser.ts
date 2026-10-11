@@ -36,6 +36,8 @@ export interface UseDenoiserOptions {
   audioConstraints?: MediaTrackConstraints;
   /** Warning callback */
   onWarning?: (message: string) => void;
+  /** Automatic performance protection/recovery notification, separate from manual bypass. */
+  onAutoBypass?: (enabled: boolean) => void;
   /** Error callback */
   onError?: (error: Error) => void;
   /** Keep audio processing alive when app goes to background (mobile) */
@@ -191,6 +193,11 @@ export function useDenoiser(
         channelCount: opts?.channelCount,
         workletUrl: opts?.workletUrl,
         onWarning: (msg: string) => optionsRef.current?.onWarning?.(msg),
+        onAutoBypass: (enabled: boolean) => {
+          if (mountedRef.current && !destroyedRef.current && requestIdRef.current === thisRequestId) {
+            optionsRef.current?.onAutoBypass?.(enabled);
+          }
+        },
         keepAliveInBackground: opts?.keepAliveInBackground,
         onDestroy: () => {
           if (mountedRef.current && !destroyedRef.current) {

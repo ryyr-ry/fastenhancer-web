@@ -14,6 +14,9 @@ on:
       - 'tests/unit/api/channel-denoiser.test.ts'
       - 'tests/unit/api/offline.test.ts'
       - 'tests/unit/api/node-file.test.ts'
+      - 'tests/unit/worklet/**'
+      - 'tests/unit/react/**'
+      - 'tests/helpers/worklet-harness.ts'
       - 'package.json'
       - 'bun.lock'
       - 'tsconfig.json'
@@ -53,8 +56,8 @@ jobs:
       - name: Build TypeScript
         run: bunx tsc && node -e "require('fs').cpSync('src/worklet/processor.js','dist/worklet/processor.js')"
 
-      - name: Verify stereo and file processing
-        run: bunx vitest run tests/unit/api/channel-denoiser.test.ts tests/unit/api/offline.test.ts tests/unit/api/node-file.test.ts
+      - name: Verify audio processing and recovery
+        run: bunx vitest run tests/unit/worklet tests/unit/react tests/unit/api/channel-denoiser.test.ts tests/unit/api/offline.test.ts tests/unit/api/node-file.test.ts
 
       - name: Build demo
         working-directory: demo

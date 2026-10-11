@@ -261,6 +261,7 @@ const {
 | `options.audioConstraints` | `MediaTrackConstraints` | Custom constraints for auto-getUserMedia |
 | `options.channelCount` | `1 \| 2` | Output channels (inferred from input track settings; defaults to mono if absent) |
 | `options.onWarning` | `(msg: string) => void` | Warning callback |
+| `options.onAutoBypass` | `(enabled: boolean) => void` | Automatic performance protection/recovery callback, separate from manual bypass |
 | `options.onError` | `(err: Error) => void` | Error callback |
 | `options.keepAliveInBackground` | `boolean` | Keep audio alive when app is backgrounded (mobile) |
 
@@ -385,7 +386,7 @@ Microphone Input (48 kHz)
 │  ┌───────────────────────┐  │
 │  │  Frame Buffer          │  │  4 × 128 quantum → 512 samples
 │  │  WASM SIMD Engine      │  │  FFT → Encoder → RNNFormer → Decoder → iFFT
-│  │  Frame Drop Scheduler  │  │  5 consecutive drops → auto bypass
+│  │  Load / Recovery      │  │  sustained overload → dry audio → consecutive recovery
 │  └───────────────────────┘  │
 └─────────────────────────────┘
     │
@@ -403,6 +404,8 @@ Clean Audio Output (48 kHz)
 | Audio channels | Mono/stereo — independent processing per channel |
 | Memory | All buffers pre-allocated at init (zero runtime malloc) |
 | Package size | All 3 models + both variants embedded (~1.85 MB tarball); tree-shakable |
+
+Real-time protection evaluates about 200 ms of average load plus accumulated excess time, rather than bypassing after five slightly slow frames. Repeated severe stalls still trigger promptly. Recovery retries after 32 ms, backs off up to 128 ms, and validates four consecutive frames before crossfading back to denoising. Both dry and processed audio retain the same STFT delay, including manual bypass. The React and stream demos show when automatic protection is active. See [performance monitoring design and verification](docs/performance-monitoring.md).
 
 ---
 
@@ -454,7 +457,7 @@ const sd = await model.createStreamDenoiser(mic, { keepAliveInBackground: true }
 - Creates a silent oscillator to keep AudioContext active
 - Registers [Media Session API](https://developer.mozilla.org/docs/Web/API/Media_Session_API) as live audio — prevents OS from killing the audio pipeline
 - Blocks pause/stop actions so users can't accidentally interrupt processing
-- Relaxes auto-bypass thresholds while in background (4× tolerance)
+- Extends the overload evidence window and severe-stall count by 4× while in background
 - Automatically resumes AudioContext on foreground return
 
 > **Note:** Effectiveness varies by browser and OS. Chrome/Brave on Android benefit the most. iOS Safari may still suspend audio despite these hints.
@@ -511,7 +514,7 @@ bunx playwright test
 | TypeScript unit / adversarial | Node.js | vitest | API, worklet, lifecycle, stereo isolation and file processing |
 | Browser E2E | Chromium / Firefox / WebKit | Playwright | AudioWorklet and offline module Worker integration |
 
-Stereo/offline validation: **266 unit/adversarial tests** and **14 selected Chromium tests** passed. The production demo also completed a stereo 44.1 kHz upload, enhancement and WAV download round trip. These results do not imply a full run of every native/WASM or browser suite.
+Stereo/offline and recovery validation: **279 unit/adversarial tests** and **26 selected Chromium tests** passed, including Base/Small scalar/SIMD performance checks and controlled stereo recovery. The production demo also completed a stereo 44.1 kHz upload, enhancement and WAV download round trip. These results do not imply a full run of every native/WASM or browser suite.
 
 ---
 

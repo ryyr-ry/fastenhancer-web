@@ -42,6 +42,7 @@ export function VanillaPage() {
   const [modelSize, setModelSize] = useState<ModelSize>('small')
   const [volume, setVolume] = useState(0.8)
   const [bypass, setBypass] = useState(false)
+  const [autoPassthrough, setAutoPassthrough] = useState(false)
   const [keepAlive, setKeepAlive] = useState(false)
   const [status, setStatus] = useState<'idle' | 'loading' | 'processing' | 'error'>('idle')
   const [warning, setWarning] = useState<string | null>(null)
@@ -61,6 +62,7 @@ export function VanillaPage() {
       streamRef.current = null
     }
     setOutputStream(null)
+    setAutoPassthrough(false)
     await input.resetAfterStop()
   }, [input])
 
@@ -98,6 +100,7 @@ export function VanillaPage() {
       const sd = await model.createStreamDenoiser(session.stream, {
         workletUrl: './assets/worklet/processor.js',
         onWarning: (msg) => setWarning(msg),
+        onAutoBypass: setAutoPassthrough,
         keepAliveInBackground: keepAlive,
       })
 
@@ -162,6 +165,7 @@ export function VanillaPage() {
 
       {errorMessage && <div className="demo__alert demo__alert--error">{errorMessage}</div>}
       {warning && <div className="demo__alert demo__alert--warn">{warning}</div>}
+      {active && autoPassthrough && <div role="status" className="demo__alert demo__alert--warn">{t('common.autoBypass')}</div>}
 
       <div className="demo__controls">
         <div className="demo__row">

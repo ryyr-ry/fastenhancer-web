@@ -56,6 +56,7 @@ function resolveModelSizeId(model: Model, explicitId?: number): number {
 export interface PerformanceStats {
   avgMs: number;
   p99Ms: number;
+  /** Lifetime processing errors; timing overruns alone do not discard frames. */
   droppedFrames: number;
   totalFrames: number;
 }

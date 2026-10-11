@@ -101,6 +101,37 @@ describe('useDenoiser', () => {
     });
   });
 
+  describe('automatic protection notifications', () => {
+    it('forwards events separately from the manual bypass setting', async () => {
+      const model = createMockLoadedModel();
+      mockLoadModel.mockResolvedValue(model);
+      const onAutoBypass = vi.fn();
+      const { result } = renderHook(() => useDenoiser('base', { onAutoBypass }));
+      await act(async () => { await result.current.start(createMockMediaStream()); });
+      const callback = model.createStreamDenoiser.mock.calls[0][1].onAutoBypass;
+      act(() => { callback(true); callback(false); });
+      expect(onAutoBypass.mock.calls).toEqual([[true], [false]]);
+      expect(result.current.bypass).toBe(false);
+    });
+
+    it('ignores events from stopped and superseded sessions', async () => {
+      const model = createMockLoadedModel();
+      mockLoadModel.mockResolvedValue(model);
+      const onAutoBypass = vi.fn();
+      const { result } = renderHook(() => useDenoiser('small', { onAutoBypass }));
+      await act(async () => { await result.current.start(createMockMediaStream()); });
+      const stale = model.createStreamDenoiser.mock.calls[0][1].onAutoBypass;
+      act(() => result.current.stop());
+      act(() => stale(true));
+      await act(async () => { await result.current.start(createMockMediaStream()); });
+      act(() => stale(true));
+      expect(onAutoBypass).not.toHaveBeenCalled();
+      const current = model.createStreamDenoiser.mock.calls[1][1].onAutoBypass;
+      act(() => current(true));
+      expect(onAutoBypass).toHaveBeenCalledWith(true);
+    });
+  });
+
   describe('start → processing flow', () => {
     it('transitions idle → loading → processing on successful start', async () => {
       const sd = createMockStreamDenoiser();
