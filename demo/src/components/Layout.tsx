@@ -3,6 +3,7 @@ import { useI18n, type TranslationKey } from '../i18n'
 
 const links: { to: string; labelKey: TranslationKey; end?: boolean }[] = [
   { to: '/', labelKey: 'nav.home', end: true },
+  { to: '/file', labelKey: 'nav.file' },
   { to: '/react', labelKey: 'nav.react' },
   { to: '/vanilla', labelKey: 'nav.vanilla' },
   { to: '/frame', labelKey: 'nav.frame' },

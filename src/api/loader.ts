@@ -22,6 +22,7 @@ import {
   type StreamDenoiser,
 } from './stream-denoiser.js';
 import type { Denoiser, WasmInstance } from './index.js';
+import { createChannelDenoiser, type ChannelDenoiser, type ChannelCount } from './channel-denoiser.js';
 import {
   loadEmbeddedWasm,
   loadEmbeddedWeights,
@@ -60,7 +61,9 @@ export interface LoadedModel {
   /** Emscripten SINGLE_FILE factory (lazy-loaded) */
   readonly wasmFactory: () => Promise<WasmInstance>;
   /** Layer 1: creates a frame-based denoiser */
-  createDenoiser(): Promise<Denoiser>;
+  createDenoiser(options?: { isolated?: boolean }): Promise<Denoiser>;
+  /** Independent per-channel processing, preserving mono/stereo separation. */
+  createChannelDenoiser(channelCount?: ChannelCount): Promise<ChannelDenoiser>;
   /** Layer 2: creates a real-time stream denoiser through AudioWorklet */
   createStreamDenoiser(
     inputStream: MediaStream,
@@ -71,6 +74,7 @@ export interface LoadedModel {
       onAutoBypass?: (enabled: boolean) => void;
       onDestroy?: () => void;
       keepAliveInBackground?: boolean;
+      channelCount?: ChannelCount;
     },
   ): Promise<StreamDenoiser>;
 }
@@ -339,7 +343,7 @@ function buildLoadedModel(
 
   const frozenExportMap = Object.freeze({ ...exportMap });
 
-  return {
+  const loadedModel: LoadedModel = {
     size: modelSize,
     variant,
     sampleRate: modelConfig.sampleRate,
@@ -353,7 +357,7 @@ function buildLoadedModel(
     exportMap: frozenExportMap,
     wasmFactory,
 
-    async createDenoiser(): Promise<Denoiser> {
+    async createDenoiser(options?: { isolated?: boolean }): Promise<Denoiser> {
       // Dynamic import intentionally avoids a runtime circular dependency with index.ts.
       const { createDenoiser: create } = await import('./index.js');
       return create({
@@ -362,11 +366,16 @@ function buildLoadedModel(
           sampleRate: modelConfig.sampleRate,
           nFft: modelConfig.nFft,
           hopSize: modelConfig.hopSize,
-          wasmFactory,
+          // Published WASM heaps are fixed-size; independent channels need their own heap.
+          wasmFactory: options?.isolated ? () => instantiateWasm(wasmBytes, exportMap) : wasmFactory,
         },
         weightData,
         modelSizeId,
       });
+    },
+
+    createChannelDenoiser(channelCount = 2): Promise<ChannelDenoiser> {
+      return createChannelDenoiser(loadedModel, channelCount);
     },
 
     async createStreamDenoiser(
@@ -378,6 +387,7 @@ function buildLoadedModel(
         onAutoBypass?: (enabled: boolean) => void;
         onDestroy?: () => void;
         keepAliveInBackground?: boolean;
+        channelCount?: ChannelCount;
       },
     ): Promise<StreamDenoiser> {
       return createStreamDenoiserImpl({
@@ -392,7 +402,9 @@ function buildLoadedModel(
         onAutoBypass: opts?.onAutoBypass,
         onDestroy: opts?.onDestroy,
         keepAliveInBackground: opts?.keepAliveInBackground,
+        channelCount: opts?.channelCount,
       });
     },
   };
+  return loadedModel;
 }

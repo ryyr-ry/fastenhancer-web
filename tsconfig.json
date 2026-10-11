@@ -4,6 +4,7 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "strict": true,
+    "allowJs": true,
     "jsx": "react-jsx",
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -16,6 +17,6 @@
     "types": [],
     "lib": ["ES2022", "DOM", "DOM.Iterable", "ESNext.Disposable"]
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "include": ["src/**/*.ts", "src/**/*.tsx", "src/api/enhance-worker.js"],
   "exclude": ["node_modules", "dist", "tests"]
 }

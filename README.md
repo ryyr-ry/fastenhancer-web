@@ -2,19 +2,18 @@
 
 # 🎙️ fastenhancer-web
 
-### Real-time voice noise removal for the browser
+### Voice noise removal for live and recorded audio
 
 [![npm version](https://img.shields.io/npm/v/fastenhancer-web.svg?style=flat-square)](https://www.npmjs.com/package/fastenhancer-web)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](./LICENSE)
 [![CI](https://github.com/ryyr-ry/fastenhancer-web/actions/workflows/deploy-demo.yml/badge.svg?style=flat-square)](https://github.com/ryyr-ry/fastenhancer-web/actions/workflows/deploy-demo.yml)
-[![Tests: 581](https://img.shields.io/badge/tests-581%20passed-brightgreen.svg?style=flat-square)](#test-architecture)
 
 Powered by [FastEnhancer](https://github.com/aask1357/fastenhancer) (ICASSP 2026)<br>
 Written in C → WebAssembly SIMD → TypeScript API
 
 <br>
 
-[**🎧 Live Demo**](https://ryyr-ry.github.io/fastenhancer-web/) &nbsp;·&nbsp; [**📖 API Reference**](#api-reference) &nbsp;·&nbsp; [**🇯🇵 日本語**](./README.ja.md)
+[**🎧 Live Demo**](https://ryyr-ry.github.io/fastenhancer-web/) &nbsp;·&nbsp; [**📁 Audio File Demo**](https://ryyr-ry.github.io/fastenhancer-web/#/file) &nbsp;·&nbsp; [**📖 API Reference**](#api-reference) &nbsp;·&nbsp; [**🇯🇵 日本語**](./README.ja.md)
 
 <br>
 
@@ -53,24 +52,25 @@ in C — no generic runtime overhead.
 <td>
 
 🔊 **48 kHz native**<br>
-No resampling. Processes at native sample rate<br>
-with 10.67 ms frame budget.
+Core inference uses a 10.67 ms frame budget.<br>
+Offline APIs convert and retain input sample rates.
 
 </td>
 <td>
 
 🔒 **No special headers**<br>
 No SharedArrayBuffer, no COOP/COEP.<br>
-CSP: only `wasm-unsafe-eval`.
+CSP supports `wasm-unsafe-eval`<br>
+and explicit worklet/worker sources.
 
 </td>
 </tr>
 <tr>
 <td>
 
-🧩 **3-layer API**<br>
-React hook (1 line) · Stream (3 lines)<br>
-Frame-level control.
+🧩 **Files and live audio**<br>
+One-call File, AudioBuffer and PCM processing.<br>
+React hook, stream and mono/stereo frame APIs.
 
 </td>
 <td>
@@ -86,6 +86,8 @@ ESM-only. Tree-shakable.
 <br>
 
 ## 📦 Installation
+
+> Stereo and offline APIs are available on `main` and in the demo. The current npm release (0.1.1) predates these additions.
 
 ```bash
 # npm
@@ -108,6 +110,36 @@ yarn add fastenhancer-web
 ---
 
 ## 🚀 Quick Start
+
+### Recorded audio — one call
+
+```typescript
+import { enhanceAudio, enhanceBuffer, enhancePcm } from 'fastenhancer-web';
+
+const cleanWav = await enhanceAudio(file);       // File/Blob → ready-to-save WAV Blob
+const cleanBuffer = await enhanceBuffer(buffer); // AudioBuffer → AudioBuffer
+const cleanPcm = await enhancePcm({ channels: [left, right], sampleRate: 44100 });
+```
+
+Mono/stereo channels and duration are retained. WAV and AudioBuffer inputs retain their sample rate; other browser-decodable files are decoded at 48 kHz. Model loading, resampling, frame splitting, delayed tail output and WAV encoding are handled automatically. The default is Small; browsers run inference in a module Worker. Use `{ model: 'tiny', signal, onProgress }` for a smaller model, cancellation and progress. Output WAV is PCM16. Node/Bun WAV processing is also one call:
+
+```typescript
+import { enhanceFile } from 'fastenhancer-web/node';
+await enhanceFile('input.wav', 'output.wav');
+```
+
+### Stereo frames
+
+```typescript
+import { loadModel } from 'fastenhancer-web';
+
+const model = await loadModel('small');
+const stereo = await model.createChannelDenoiser(2);
+const [cleanLeft, cleanRight] = stereo.processFrame([leftFrame, rightFrame]);
+stereo.destroy();
+```
+
+Frames contain 512 samples per channel at 48 kHz. Left/right use independent states and WASM heaps. This is speech enhancement applied per channel; the original stereo image is not guaranteed. Stream APIs infer channel count from track settings; pass `{ channelCount: 2 }` when needed. See [design, deployment and limitations](docs/stereo-offline.md).
 
 ### Layer 3 — React Hook
 
@@ -176,6 +208,32 @@ Bundlers with tree-shaking will only include the model you actually import.
 
 ## 📖 API Reference
 
+### Recorded audio APIs
+
+| Function | Input → Output | Runtime |
+|----------|----------------|---------|
+| `enhanceAudio(file, options?)` | `File`/`Blob` → PCM16 WAV `Blob` | Browser; WAV also works in Node/Bun |
+| `enhanceBuffer(buffer, options?)` | `AudioBuffer` → `AudioBuffer` | Browser |
+| `enhancePcm(audio, options?)` | `{ channels: Float32Array[], sampleRate }` → same PCM shape | Browser / Node / Bun |
+| `enhanceFile(inputPath, outputPath, options?)` | WAV path → saved WAV | Node/Bun, import from `fastenhancer-web/node` |
+
+All accept mono/stereo input. PCM and WAV support integer sample rates from 8–192 kHz. Files use browser-supported codecs; non-WAV files produce 48 kHz output. Processing retains channel order and decoded sample count. It buffers the entire recording in memory, so memory use grows with recording length.
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `model` | `'small'` | `'tiny'`, `'base'` or `'small'` |
+| `simd` | Auto-detected | Force SIMD on/off |
+| `baseUrl` | Embedded assets | Self-hosted model resources |
+| `signal` | — | `AbortSignal` for cancellation |
+| `onProgress` | — | Callback with processing progress from 0 to 1 |
+| `worker` | Automatic | Browser module Worker; `true` requires one, `false` uses cooperative inline processing |
+
+`enhanceFile` uses inline processing; omit `worker` in Node/Bun (`worker: true` requires a browser). WAV output is PCM16 and does not retain source container metadata. Cancellation prevents returning or saving a cancelled result; browser codec decoding cannot be interrupted mid-call. See [deployment and memory requirements](docs/stereo-offline.md).
+
+### `model.createChannelDenoiser(channelCount?)` — Mono/stereo frames
+
+The default channel count is 2; pass 1 for mono. `processFrame([left, right])` accepts exactly 512 finite samples per channel at 48 kHz and returns separate output arrays. `reset()` clears temporal history. `destroy()` releases both engines. `bypass`, `agcEnabled` and `hpfEnabled` apply to every channel together. Stereo inference and memory costs are approximately twice those of mono; the timing tables below measure mono.
+
 ### `useDenoiser(modelSize, options?)` — React Hook
 
 ```typescript
@@ -201,6 +259,7 @@ const {
 | `options.simd` | `boolean` | Force SIMD on/off (auto-detected by default) |
 | `options.workletUrl` | `string` | Custom AudioWorklet processor URL |
 | `options.audioConstraints` | `MediaTrackConstraints` | Custom constraints for auto-getUserMedia |
+| `options.channelCount` | `1 \| 2` | Output channels (inferred from input track settings; defaults to mono if absent) |
 | `options.onWarning` | `(msg: string) => void` | Warning callback |
 | `options.onError` | `(err: Error) => void` | Error callback |
 | `options.keepAliveInBackground` | `boolean` | Keep audio alive when app is backgrounded (mobile) |
@@ -220,6 +279,7 @@ import { loadModel } from 'fastenhancer-web';
 
 const model = await loadModel('small');
 // model.createDenoiser()         — Layer 1: frame-level processing
+// model.createChannelDenoiser(2) — independent left/right frame processing
 // model.createStreamDenoiser()   — Layer 2: real-time AudioWorklet stream
 // model.wasmBytes                — raw WASM binary (advanced use)
 // model.weightData               — weight binary (advanced use)
@@ -340,7 +400,7 @@ Clean Audio Output (48 kHz)
 | Loading strategy | Embedded JS modules by default; `fetch()` when `baseUrl` provided |
 | Worklet loading | Inline Blob URL (no external file); `workletUrl` for strict CSP |
 | WASM instantiation | Raw `WebAssembly.instantiate()` — no Emscripten glue in worklet |
-| Audio channels | Mono only — stereo inputs downmixed to first channel |
+| Audio channels | Mono/stereo — independent processing per channel |
 | Memory | All buffers pre-allocated at init (zero runtime malloc) |
 | Package size | All 3 models + both variants embedded (~1.85 MB tarball); tree-shakable |
 
@@ -360,16 +420,19 @@ Clean Audio Output (48 kHz)
 - AudioWorklet support
 - No `SharedArrayBuffer` / `Cross-Origin-Isolation` headers needed
 
+AudioWorklet is required for stream processing. Offline APIs use module Workers when available and browser codecs for non-WAV files. The new stereo/offline paths have been tested in Chromium; Firefox and Safari validation remains pending.
+
 <details>
 <summary><b>CSP directives</b></summary>
 
 ```
 script-src 'self' 'wasm-unsafe-eval' blob:;
-worker-src blob:;
+worker-src 'self' blob:;
 ```
 
 - `wasm-unsafe-eval` — required for `WebAssembly.instantiate()`
 - `blob:` — for default worklet loading (not needed if using `workletUrl` option)
+- `'self'` in `worker-src` — for the offline module Worker and its bundled assets
 
 </details>
 
@@ -420,8 +483,11 @@ const sd = await model.createStreamDenoiser(mic, { keepAliveInBackground: true }
 # Install dependencies
 bun install
 
-# Run all vitest tests (305 tests across 22 files)
+# Run all vitest tests
 bun run test
+
+# Run stereo/offline tests using committed embedded assets (no WASM rebuild)
+bunx vitest run tests/unit/api/channel-denoiser.test.ts tests/unit/api/offline.test.ts tests/unit/api/node-file.test.ts
 
 # Build TypeScript
 bun run build:ts
@@ -438,13 +504,14 @@ bunx playwright test
 
 ### Test Architecture
 
-| Suite | Environment | Framework | Tests | Purpose |
-|-------|-------------|-----------|-------|---------|
-| C native | gcc (MinGW) | Unity | ~201 | C module correctness |
-| WASM | Emscripten (scalar + SIMD) | vitest | 30 | Emscripten conversion + SIMD correctness |
-| TypeScript unit | Node.js | vitest | 275 | API / worklet / lifecycle correctness |
-| Browser E2E | Chrome + Firefox + WebKit | Playwright | 75 | AudioWorklet integration |
-| **Total** | | | **~581** | |
+| Suite | Environment | Framework | Purpose |
+|-------|-------------|-----------|---------|
+| C native | gcc (MinGW) | Unity | C module correctness |
+| WASM | Emscripten (scalar + SIMD) | vitest | Emscripten conversion + SIMD correctness |
+| TypeScript unit / adversarial | Node.js | vitest | API, worklet, lifecycle, stereo isolation and file processing |
+| Browser E2E | Chromium / Firefox / WebKit | Playwright | AudioWorklet and offline module Worker integration |
+
+Stereo/offline validation: **266 unit/adversarial tests** and **14 selected Chromium tests** passed. The production demo also completed a stereo 44.1 kHz upload, enhancement and WAV download round trip. These results do not imply a full run of every native/WASM or browser suite.
 
 ---
 

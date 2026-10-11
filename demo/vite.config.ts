@@ -3,6 +3,8 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
+  // Keep model assets lazy-loaded inside the offline module Worker.
+  worker: { format: 'es' },
   plugins: [react({ include: ['src/**/*.{ts,tsx,js,jsx}', '../src/**/*.{ts,tsx,js,jsx}'] })],
   base: './',
   resolve: {

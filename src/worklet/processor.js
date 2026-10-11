@@ -73,8 +73,10 @@ function _nowReliable() {
 }
 
 class FastEnhancerProcessor extends AudioWorkletProcessor {
-  constructor() {
+  constructor(options = {}) {
     super();
+    this._channelCount = options.processorOptions?.channelCount ?? 1;
+    this._channels = [];
     this._initialized = false;
     this._destroyed = false;
     this._bypass = false;
@@ -89,20 +91,11 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
     this._probeCounter = 0;
     this._backgroundMode = false;
     this._overrunThreshold = OVERRUN_THRESHOLD;
-    this._inputBuffer = new Float32Array(this._hopSize + QUANTUM);
     this._inputWritePos = 0;
 
     this._outputPos = 0;
-    this._passthroughBuffer = null;
     this._lastFramePassthrough = false;
 
-    this._wasm = null;
-    this._statePtr = 0;
-    this._inputPtr = 0;
-    this._outputPtr = 0;
-    this._memory = null;
-    this._cachedHeapF32 = null;
-    this._cachedBuffer = null;
 
     this._frameCount = 0;
     this._processingTimes = new Float64Array(MAX_STORED_TIMES);
@@ -131,17 +124,16 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
         break;
       case 'set_hpf':
         this._hpfEnabled = !!msg.enabled;
-        if (this._wasm && this._statePtr)
-          this._wasm._fe_set_hpf(this._statePtr, msg.enabled ? 1 : 0);
+        this._forEachState('_fe_set_hpf', msg.enabled ? 1 : 0);
         break;
       case 'set_agc':
         this._agcEnabled = !!msg.enabled;
-        if (this._wasm && this._statePtr)
-          this._wasm._fe_set_agc(this._statePtr, msg.enabled ? 1 : 0);
+        this._forEachState('_fe_set_agc', msg.enabled ? 1 : 0);
         break;
       case 'reset':
-        if (this._wasm && this._statePtr)
-          this._wasm._fe_reset(this._statePtr);
+        this._forEachState('_fe_reset');
+        this._inputWritePos = 0;
+        this._outputPos = this._hopSize;
         break;
       case 'get_stats':
         this._sendStats();
@@ -189,15 +181,21 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
     }
   }
 
-  _initWasm({ wasmBytes, weightBytes, exportMap, modelSize }) {
-    if (this._initialized) {
-      if (this._wasm && this._statePtr) {
-        this._wasm._fe_destroy(this._statePtr);
-        this._statePtr = 0;
-      }
-      this._initialized = false;
-    }
+  _forEachState(method, ...args) {
+    for (const channel of this._channels) channel.wasm[method](channel.statePtr, ...args);
+  }
+
+  _releaseStates() {
+    this._forEachState('_fe_destroy');
+    this._channels = [];
+    this._initialized = false;
+  }
+
+  _initWasm({ wasmBytes, weightBytes, exportMap, modelSize, channelCount = this._channelCount }) {
+    this._releaseStates();
     try {
+      if (channelCount !== 1 && channelCount !== 2) throw new Error('channelCount must be 1 or 2');
+      this._channelCount = channelCount;
       // NOTE: Synchronous compilation is required inside AudioWorklet (no async in process()).
       // This blocks the audio thread for the duration of compilation (~50-200ms).
       // WebAssembly.compileStreaming is not available in AudioWorkletGlobalScope.
@@ -250,62 +248,72 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
         );
       }
 
-      const instance = new WebAssembly.Instance(module, importObject);
+      // Share compiled code, but give each channel a separate fixed-size heap.
+      const createEngine = () => {
+        const instance = new WebAssembly.Instance(module, importObject);
 
-      let memory = null;
-      for (const val of Object.values(instance.exports)) {
-        if (val instanceof WebAssembly.Memory) { memory = val; break; }
-      }
-      if (!memory) throw new Error('WASM memory export not found');
-      this._memory = memory;
+        let memory = null;
+        for (const val of Object.values(instance.exports)) {
+          if (val instanceof WebAssembly.Memory) { memory = val; break; }
+        }
+        if (!memory) throw new Error('WASM memory export not found');
 
-      const wasm = {};
-      for (const [readable, minified] of Object.entries(exportMap)) {
-        const exp = instance.exports[minified];
-        if (typeof exp === 'function') wasm[readable] = exp;
-      }
+        const wasm = {};
+        for (const [readable, minified] of Object.entries(exportMap)) {
+          const exp = instance.exports[minified];
+          if (typeof exp === 'function') wasm[readable] = exp;
+        }
 
-      const WORKLET_REQUIRED_EXPORTS = [
-        '_malloc', '_free', '_fe_init', '_fe_destroy',
-        '_fe_process_inplace', '_fe_get_input_ptr', '_fe_get_output_ptr',
-        '_fe_get_hop_size', '_fe_get_n_fft',
-        '_fe_set_agc', '_fe_set_hpf', '_fe_reset',
-      ];
-      const missingExports = [];
-      for (const name of WORKLET_REQUIRED_EXPORTS) {
-        if (typeof wasm[name] !== 'function') missingExports.push(name);
-      }
-      if (missingExports.length > 0) {
-        throw new Error(
-          `WASM module is missing required exports: ${missingExports.join(', ')}. ` +
-          'Check that the export map matches the compiled WASM binary.'
-        );
-      }
-      this._wasm = wasm;
+        const WORKLET_REQUIRED_EXPORTS = [
+          '_malloc', '_free', '_fe_init', '_fe_destroy',
+          '_fe_process_inplace', '_fe_get_input_ptr', '_fe_get_output_ptr',
+          '_fe_get_hop_size', '_fe_get_n_fft',
+          '_fe_set_agc', '_fe_set_hpf', '_fe_reset',
+        ];
+        const missingExports = [];
+        for (const name of WORKLET_REQUIRED_EXPORTS) {
+          if (typeof wasm[name] !== 'function') missingExports.push(name);
+        }
+        if (missingExports.length > 0) {
+          throw new Error(
+            `WASM module is missing required exports: ${missingExports.join(', ')}. ` +
+            'Check that the export map matches the compiled WASM binary.'
+          );
+        }
+        return { wasm, memory };
+
+      };
 
       const weightLen = weightBytes.byteLength;
-      const weightPtr = wasm._malloc(weightLen);
-      if (!weightPtr) throw new Error('malloc failed for weight allocation');
-
-      new Uint8Array(memory.buffer).set(new Uint8Array(weightBytes), weightPtr);
-
-      let statePtr;
-      try {
-        statePtr = wasm._fe_init(modelSize, weightPtr, weightLen);
-      } finally {
-        wasm._free(weightPtr);
+      for (let c = 0; c < channelCount; c++) {
+        const { wasm, memory } = createEngine();
+        const weightPtr = wasm._malloc(weightLen);
+        if (!weightPtr) throw new Error('malloc failed for weight allocation');
+        try {
+          new Uint8Array(memory.buffer).set(new Uint8Array(weightBytes), weightPtr);
+          const statePtr = wasm._fe_init(modelSize, weightPtr, weightLen);
+          if (!statePtr) throw new Error('fe_init returned null (weight validation failed?)');
+          const hopSize = wasm._fe_get_hop_size(statePtr);
+          this._channels.push({
+            wasm, memory, statePtr,
+            inputPtr: wasm._fe_get_input_ptr(statePtr),
+            outputPtr: wasm._fe_get_output_ptr(statePtr),
+            inputBuffer: new Float32Array(hopSize + QUANTUM),
+            passthroughBuffer: new Float32Array(hopSize),
+            cachedHeapF32: null,
+            cachedBuffer: null,
+          });
+          this._hopSize = hopSize;
+          wasm._fe_set_hpf(statePtr, this._hpfEnabled ? 1 : 0);
+          wasm._fe_set_agc(statePtr, this._agcEnabled ? 1 : 0);
+        } finally {
+          wasm._free(weightPtr);
+        }
       }
-      if (!statePtr) throw new Error('fe_init returned null (weight validation failed?)');
-      this._statePtr = statePtr;
-
-      const hopSize = wasm._fe_get_hop_size(statePtr);
-      this._hopSize = hopSize;
-      this._inputPtr = wasm._fe_get_input_ptr(statePtr);
-      this._outputPtr = wasm._fe_get_output_ptr(statePtr);
-
-      this._inputBuffer = new Float32Array(hopSize + QUANTUM);
+      const hopSize = this._hopSize;
       this._inputWritePos = 0;
-      this._outputPos = 0;
+      this._outputPos = hopSize;
+      this._lastFramePassthrough = false;
       this._budgetMs = (hopSize / sampleRate) * 1000;
       this._consecutiveOverruns = 0;
       this._consecutiveSuccesses = 0;
@@ -323,18 +331,15 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
       }
 
       this._initialized = true;
-      this.port.postMessage({ type: 'ready', hopSize });
+      this.port.postMessage({ type: 'ready', hopSize, channelCount });
     } catch (err) {
+      this._releaseStates();
       this.port.postMessage({ type: 'error', message: err.message });
     }
   }
 
   _destroy() {
-    if (this._wasm && this._statePtr) {
-      this._wasm._fe_destroy(this._statePtr);
-      this._statePtr = 0;
-    }
-    this._initialized = false;
+    this._releaseStates();
     this._destroyed = true;
     this.port.postMessage({ type: 'destroyed' });
   }
@@ -386,39 +391,40 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
   }
 
   _copyInputFrameToOutput(hopSize) {
-    if (!this._passthroughBuffer || this._passthroughBuffer.length < hopSize) {
-      this._passthroughBuffer = new Float32Array(hopSize);
+    for (const channel of this._channels) {
+      channel.passthroughBuffer.set(channel.inputBuffer.subarray(0, hopSize));
     }
-    this._passthroughBuffer.set(this._inputBuffer.subarray(0, hopSize));
     this._lastFramePassthrough = true;
   }
 
-  _getHeapF32() {
-    if (!this._cachedHeapF32 || this._cachedBuffer !== this._memory.buffer) {
-      this._cachedBuffer = this._memory.buffer;
-      this._cachedHeapF32 = new Float32Array(this._cachedBuffer);
+  _getHeapF32(channel) {
+    if (!channel.cachedHeapF32 || channel.cachedBuffer !== channel.memory.buffer) {
+      channel.cachedBuffer = channel.memory.buffer;
+      channel.cachedHeapF32 = new Float32Array(channel.cachedBuffer);
     }
-    return this._cachedHeapF32;
+    return channel.cachedHeapF32;
   }
 
   _updateOutputDiagnostics(hopSize) {
     if (this._statsInterval <= 0) return;
 
-    const heapF32 = this._getHeapF32();
-    const outputOffset = this._outputPtr >> 2;
-    for (let i = 0; i < hopSize; i++) {
-      const v = heapF32[outputOffset + i];
-      if (v !== v) {
-        this._hasNaN = true;
-        continue;
+    for (const channel of this._channels) {
+      const heapF32 = this._getHeapF32(channel);
+      const outputOffset = channel.outputPtr >> 2;
+      for (let i = 0; i < hopSize; i++) {
+        const v = heapF32[outputOffset + i];
+        if (v !== v) {
+          this._hasNaN = true;
+          continue;
+        }
+        if (v === Infinity || v === -Infinity) {
+          this._hasInf = true;
+          continue;
+        }
+        this._outputRmsSum += v * v;
+        if (v > NONZERO_THRESHOLD || v < -NONZERO_THRESHOLD) this._outputNonZeroCount++;
+        this._outputTotalSamples++;
       }
-      if (v === Infinity || v === -Infinity) {
-        this._hasInf = true;
-        continue;
-      }
-      this._outputRmsSum += v * v;
-      if (v > NONZERO_THRESHOLD || v < -NONZERO_THRESHOLD) this._outputNonZeroCount++;
-      this._outputTotalSamples++;
     }
   }
 
@@ -426,11 +432,11 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
     this._lastFramePassthrough = false;
     const t0 = _nowReliable();
 
-    const heapF32 = this._getHeapF32();
-    const inputOffset = this._inputPtr >> 2;
-    heapF32.set(this._inputBuffer.subarray(0, hopSize), inputOffset);
-
-    this._wasm._fe_process_inplace(this._statePtr);
+    for (const channel of this._channels) {
+      const heapF32 = this._getHeapF32(channel);
+      heapF32.set(channel.inputBuffer.subarray(0, hopSize), channel.inputPtr >> 2);
+      channel.wasm._fe_process_inplace(channel.statePtr);
+    }
 
     const elapsed = _nowReliable() - t0;
     this._frameCount++;
@@ -508,56 +514,60 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
     if (this._destroyed) return false;
     if (!_timerChecked) _checkTimerAcrossCallbacks();
 
-    const output = outputs[0] && outputs[0][0];
-    if (!output) return true;
+    const outputChannels = outputs[0];
+    if (!outputChannels || !outputChannels[0]) return true;
+    const inputChannels = inputs[0] || [];
+    const len = Math.min(QUANTUM, outputChannels[0].length);
 
-    const input = inputs[0] && inputs[0][0];
-
-    if (!this._initialized || !input) {
-      if (input) output.set(input);
-      else output.fill(0);
+    if (!this._initialized) {
+      for (let c = 0; c < outputChannels.length; c++) {
+        outputChannels[c].fill(0);
+        if (inputChannels[c]) outputChannels[c].set(inputChannels[c].subarray(0, len));
+      }
       return true;
     }
 
+    // Both channels share frame positions and bypass decisions, but never model state.
     const hopSize = this._hopSize;
-    const len = Math.min(QUANTUM, output.length, input.length);
-
-    this._inputBuffer.set(input.subarray(0, len), this._inputWritePos);
+    for (let c = 0; c < this._channels.length; c++) {
+      const buffer = this._channels[c].inputBuffer;
+      buffer.fill(0, this._inputWritePos, this._inputWritePos + len);
+      if (inputChannels[c]) buffer.set(inputChannels[c].subarray(0, len), this._inputWritePos);
+    }
     this._inputWritePos += len;
 
     if (this._inputWritePos >= hopSize) {
       try {
         this._processFrame(hopSize);
       } catch (err) {
+        this._forEachState('_fe_reset');
         this._copyInputFrameToOutput(hopSize);
         this._lastError = err.message || String(err);
         this.port.postMessage({ type: 'process_error', message: this._lastError });
       }
-
       const leftover = this._inputWritePos - hopSize;
       if (leftover > 0) {
-        this._inputBuffer.copyWithin(0, hopSize, this._inputWritePos);
+        for (const channel of this._channels) channel.inputBuffer.copyWithin(0, hopSize, this._inputWritePos);
       }
       this._inputWritePos = leftover;
       this._outputPos = 0;
     }
 
-    output.fill(0);
-    const outputPos = this._outputPos;
-    const available = outputPos < hopSize ? Math.min(len, hopSize - outputPos) : 0;
-    if (available > 0) {
-      if (this._lastFramePassthrough && this._passthroughBuffer) {
-        output.set(this._passthroughBuffer.subarray(outputPos, outputPos + available));
-      } else {
-        const heapF32 = this._getHeapF32();
-        const outputOffset = this._outputPtr >> 2;
-        output.set(heapF32.subarray(outputOffset + outputPos, outputOffset + outputPos + available));
-      }
+    const available = this._outputPos < hopSize ? Math.min(len, hopSize - this._outputPos) : 0;
+    for (let c = 0; c < outputChannels.length; c++) {
+      const output = outputChannels[c];
+      output.fill(0);
+      const channel = this._channels[c];
+      if (!channel || available === 0) continue;
+      const heapF32 = this._getHeapF32(channel);
+      const frame = this._lastFramePassthrough ? channel.passthroughBuffer
+        : heapF32.subarray(channel.outputPtr >> 2, (channel.outputPtr >> 2) + hopSize);
+      output.set(frame.subarray(this._outputPos, this._outputPos + available));
     }
     this._outputPos += len;
-
     return true;
   }
+
 }
 
 registerProcessor('fastenhancer-processor', FastEnhancerProcessor);

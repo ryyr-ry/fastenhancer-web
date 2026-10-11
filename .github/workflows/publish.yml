@@ -24,6 +24,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4  # pin: v4.2.2
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4  # pin: v4.4.0
+        with:
+          node-version: "24"
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2  # pin: v2.1.1
         with:
@@ -34,7 +39,7 @@ jobs:
 
       - name: Build TypeScript
         run: |
-          tsc
+          bunx tsc
           node -e "require('fs').cpSync('src/worklet/processor.js','dist/worklet/processor.js')"
 
       - name: Verify dist/embedded exists
@@ -55,11 +60,6 @@ jobs:
             exit 1
           fi
           echo "Version verified: $PKG_VERSION"
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4  # pin: v4.4.0
-        with:
-          node-version: "24"
 
       - name: Publish to npm (OIDC Trusted Publishing)
         run: npm publish --provenance --access public --ignore-scripts

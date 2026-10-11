@@ -1,6 +1,6 @@
 # fastenhancer-web
 
-ブラウザ上でリアルタイムに通話音声のノイズを除去するためのライブラリです。[FastEnhancer](https://github.com/aask1357/fastenhancer)（ICASSP 2026）を中核に据え、推論処理を C で実装し、WebAssembly SIMD として配布しています。利用側からは整理された TypeScript API として扱えます。
+ブラウザ上のリアルタイム音声と録音済みファイルのノイズを除去するライブラリです。モノラル・ステレオに対応し、録音済み音声は1行で処理できます。[FastEnhancer](https://github.com/aask1357/fastenhancer)（ICASSP 2026）を中核に据え、推論処理を C で実装し、WebAssembly SIMD として配布しています。利用側からは TypeScript API として扱えます。
 
 > **English documentation: [README.md](./README.md)**
 
@@ -26,12 +26,16 @@
 
 ## インストール
 
+> ステレオ・録音済みファイルのAPIは `main` とデモサイトで利用できます。現在のnpm公開版（0.1.1）には、まだ含まれていません。
+
 ```bash
 npm install fastenhancer-web
 bun add fastenhancer-web
 pnpm add fastenhancer-web
 yarn add fastenhancer-web
 ```
+
+[デモサイト](https://ryyr-ry.github.io/fastenhancer-web/) · [音声ファイルのデモ](https://ryyr-ry.github.io/fastenhancer-web/#/file)
 
 > **注意:** このパッケージは **ESM専用** です。バンドラー（Vite, esbuild, webpack 5+）またはESモジュール対応ランタイム（Node.js 18+ `"type": "module"`）が必要です。CommonJS `require()` はサポートされていません。
 >
@@ -40,6 +44,38 @@ yarn add fastenhancer-web
 ---
 
 ## クイックスタート
+
+### 録音済み音声を1行で処理
+
+```typescript
+import { enhanceAudio, enhanceBuffer, enhancePcm } from 'fastenhancer-web';
+
+const cleanWav = await enhanceAudio(file); // File/Blob → 保存できるWAV Blob
+const cleanBuffer = await enhanceBuffer(buffer); // AudioBuffer → AudioBuffer
+const cleanPcm = await enhancePcm({ channels: [left, right], sampleRate: 44100 });
+```
+
+モノラル・ステレオのチャンネル数と長さを保持します。WAV・AudioBuffer・PCMは入力のサンプルレートを保持し、それ以外のブラウザ対応音声形式は48 kHzでデコードします。モデル読み込み、レート変換、フレーム分割、末尾処理、遅延補正、WAV出力を内部で行います。標準モデルはSmall、ブラウザの推論はmodule Workerで実行します。`{ model: 'tiny', signal, onProgress }` でモデル、キャンセル、進捗を指定できます。WAV出力は16ビットPCMです。
+
+Node/BunでもWAVの読み込みから保存まで1行で実行できます。
+
+```typescript
+import { enhanceFile } from 'fastenhancer-web/node';
+await enhanceFile('input.wav', 'output.wav');
+```
+
+### ステレオのフレーム処理
+
+```typescript
+import { loadModel } from 'fastenhancer-web';
+
+const model = await loadModel('small');
+const stereo = await model.createChannelDenoiser(2);
+const [cleanLeft, cleanRight] = stereo.processFrame([leftFrame, rightFrame]);
+stereo.destroy();
+```
+
+入力は48 kHz、各チャンネル512サンプルです。左右の状態とWASMメモリを独立させて処理します。音声向けのモノラルモデルを左右に適用する方式ですので、元の定位を完全に保持することまでは保証しません。ストリームAPIでは入力トラックからチャンネル数を取得し、必要に応じて `{ channelCount: 2 }` を指定できます。[設計・配布方法・制約](docs/stereo-offline.md)もご参照ください。
 
 ### Layer 3: React Hook
 
@@ -106,6 +142,32 @@ const model = await loadModel('small', { baseUrl: 'https://cdn.example.com/model
 
 ## API リファレンス
 
+### 録音済み音声のAPI
+
+| 関数 | 入力 → 出力 | 実行環境 |
+|------|-------------|----------|
+| `enhanceAudio(file, options?)` | `File`/`Blob` → 16ビットPCMのWAV `Blob` | ブラウザ（WAVはNode/Bunでも利用可） |
+| `enhanceBuffer(buffer, options?)` | `AudioBuffer` → `AudioBuffer` | ブラウザ |
+| `enhancePcm(audio, options?)` | `{ channels: Float32Array[], sampleRate }` → 同じ形式のPCM | ブラウザ / Node / Bun |
+| `enhanceFile(inputPath, outputPath, options?)` | WAVのパス → WAV保存 | Node/Bun（`fastenhancer-web/node` からインポート） |
+
+すべてモノラル・ステレオに対応しています。PCMとWAVのサンプルレートは8〜192 kHzの整数値に対応します。WAV以外のファイルはブラウザ対応のコーデックで読み込み、48 kHzで出力します。チャンネルの順序とデコード後のサンプル数を保持します。録音全体をメモリに展開するため、長い録音ほどメモリが必要です。
+
+| オプション | 既定値 | 説明 |
+|------------|--------|------|
+| `model` | `'small'` | `'tiny'` / `'base'` / `'small'` |
+| `simd` | 自動検出 | SIMDの有効・無効を指定 |
+| `baseUrl` | 埋め込みアセット | セルフホストするモデルのURL |
+| `signal` | — | キャンセル用の `AbortSignal` |
+| `onProgress` | — | 0〜1の処理進捗を受け取るコールバック |
+| `worker` | 自動 | ブラウザのmodule Workerを使用。`true` は必須、`false` は呼び出し元で定期的に処理を中断しながら実行 |
+
+`enhanceFile` は呼び出し元で処理します。Node/Bunでは `worker` を省略してください（`worker: true` はブラウザ専用です）。WAV出力は16ビットPCMで、元ファイルのコンテナメタデータは保持しません。キャンセルした処理結果は返却・保存されませんが、ブラウザのデコード呼び出し自体は途中で中断できません。[配布方法とメモリの制約](docs/stereo-offline.md)もご参照ください。
+
+### `model.createChannelDenoiser(channelCount?)` — モノラル・ステレオのフレーム処理
+
+既定のチャンネル数は2で、1を指定するとモノラルになります。`processFrame([left, right])` は48 kHz、各チャンネル512個の有限値を受け取り、チャンネル別の配列を返します。`reset()` で時間方向の状態を初期化し、`destroy()` で両方のエンジンを解放します。`bypass`、`agcEnabled`、`hpfEnabled` は全チャンネルに適用します。ステレオの推論・メモリの負担はおおむねモノラルの2倍です。以下の処理時間の表はモノラルの計測値です。
+
 ### `useDenoiser(modelSize, options?)` — React Hook
 
 ```typescript
@@ -131,6 +193,7 @@ const {
 | `options.simd` | `boolean` | SIMD の有効/無効を明示指定（デフォルトは自動検出） |
 | `options.workletUrl` | `string` | カスタム AudioWorklet processor の URL |
 | `options.audioConstraints` | `MediaTrackConstraints` | 自動 getUserMedia 時のオーディオ制約 |
+| `options.channelCount` | `1 \| 2` | 出力チャンネル数（入力トラックから取得し、不明な場合はモノラル） |
 | `options.onWarning` | `(msg: string) => void` | 警告コールバック |
 | `options.onError` | `(err: Error) => void` | エラーコールバック |
 | `options.keepAliveInBackground` | `boolean` | バックグラウンド時も音声処理を維持（モバイル向け） |
@@ -150,6 +213,7 @@ import { loadModel } from 'fastenhancer-web';
 
 const model = await loadModel('small');
 // model.createDenoiser()         — Layer 1: フレーム単位処理
+// model.createChannelDenoiser(2) — 左右を独立したフレーム処理
 // model.createStreamDenoiser()   — Layer 2: リアルタイム AudioWorklet ストリーム
 // model.wasmBytes                — 生の WASM バイナリ（上級者向け）
 // model.weightData               — 重みバイナリ（上級者向け）
@@ -270,7 +334,7 @@ import { WasmLoadError, DestroyedError } from 'fastenhancer-web/errors';
 | ロード戦略 | デフォルトは埋め込み JS モジュール、`baseUrl` 指定時は `fetch()` |
 | Worklet 読み込み | インライン Blob URL（外部ファイル不要）、厳格 CSP には `workletUrl` |
 | WASM インスタンス化 | 生の `WebAssembly.instantiate()` — worklet 内に Emscripten グルーなし |
-| オーディオチャネル | モノラル専用 — ステレオは最初のチャネルにダウンミックス |
+| オーディオチャネル | モノラル・ステレオ — チャンネルごとに独立して処理 |
 | メモリ | 全バッファ初期化時一括確保（実行時 malloc ゼロ） |
 | パッケージサイズ | 全3モデル＋両バリアント埋め込み（tarball 約 1.85 MB）、ツリーシェイキング対応 |
 
@@ -290,16 +354,19 @@ import { WasmLoadError, DestroyedError } from 'fastenhancer-web/errors';
 - AudioWorklet 対応
 - `SharedArrayBuffer` / `Cross-Origin-Isolation` ヘッダー不要
 
+AudioWorkletはストリーム処理に必要です。録音済み音声のAPIは、利用可能な場合にmodule Workerを使用し、WAV以外の形式はブラウザのコーデックで読み込みます。今回追加したステレオ・録音済み音声の処理はChromiumで検証済みです。Firefox・Safariでの追加機能の検証は未実施です。
+
 <details>
 <summary><b>CSP ディレクティブ</b></summary>
 
 ```
 script-src 'self' 'wasm-unsafe-eval' blob:;
-worker-src blob:;
+worker-src 'self' blob:;
 ```
 
 - `wasm-unsafe-eval` — `WebAssembly.instantiate()` に必要
 - `blob:` — デフォルトの worklet 読み込みに必要（`workletUrl` 使用時は不要）
+- `worker-src` の `'self'` — 録音済み音声を処理するmodule Workerと、そのバンドル済みアセットに必要
 
 </details>
 
@@ -350,8 +417,11 @@ const sd = await model.createStreamDenoiser(mic, { keepAliveInBackground: true }
 # 依存関係をインストール
 bun install
 
-# vitest 全テストを実行（305 テスト、22 ファイル）
+# vitest 全テストを実行
 bun run test
+
+# コミット済みの埋め込みアセットでステレオ・ファイル処理を検証（WASM再ビルド不要）
+bunx vitest run tests/unit/api/channel-denoiser.test.ts tests/unit/api/offline.test.ts tests/unit/api/node-file.test.ts
 
 # TypeScript をビルド
 bun run build:ts
@@ -368,13 +438,14 @@ bunx playwright test
 
 ### テスト構成
 
-| スイート | 環境 | フレームワーク | テスト数 | 目的 |
-|-------|-------------|-----------|-------|---------|
-| C native | gcc (MinGW) | Unity | ~201 | C モジュールの正しさ |
-| WASM | Emscripten (scalar + SIMD) | vitest | 30 | Emscripten 変換 + SIMD 正当性 |
-| TypeScript unit | Node.js | vitest | 275 | API / worklet / ライフサイクルの正しさ |
-| Browser E2E | Chrome + Firefox + WebKit | Playwright | 75 | AudioWorklet 統合 |
-| **合計** | | | **~581** | |
+| スイート | 環境 | フレームワーク | 目的 |
+|----------|------|----------------|------|
+| C native | gcc (MinGW) | Unity | C モジュールの正しさ |
+| WASM | Emscripten (scalar + SIMD) | vitest | Emscripten 変換と SIMD の正しさ |
+| TypeScript unit / adversarial | Node.js | vitest | API・worklet・ライフサイクル・左右の独立性・ファイル処理 |
+| Browser E2E | Chromium / Firefox / WebKit | Playwright | AudioWorklet と録音済み音声用module Workerの統合 |
+
+ステレオ・録音済み音声の実装では、**単体・異常系266件**と**Chromiumの選択した14件**が通過しています。本番用にビルドしたデモでも、44.1 kHzのステレオ音声の選択・処理・WAV保存を確認しました。C・WASM・全ブラウザのテストをすべて再実行した結果ではありません。
 
 ---
 

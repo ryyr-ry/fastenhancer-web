@@ -2,18 +2,9 @@ import { Link } from 'react-router-dom'
 import { CodeBlock } from '../components/CodeBlock'
 import { useT, renderCode } from '../i18n'
 
-const quickStart = `import { useDenoiser } from 'fastenhancer-web/react';
+const quickStart = `import { enhanceAudio } from 'fastenhancer-web';
 
-function App() {
-  const { outputStream, start, stop } = useDenoiser('small');
-  return (
-    <>
-      <button onClick={start}>Start</button>
-      <button onClick={stop}>Stop</button>
-      {outputStream && <audio autoPlay ref={el => el && (el.srcObject = outputStream)} />}
-    </>
-  );
-}`
+const cleanWav = await enhanceAudio(file);`
 
 interface DemoCardProps {
   to: string
@@ -78,6 +69,13 @@ export function HomePage() {
         <h2 className="landing__section-title">{t('home.demosTitle')}</h2>
         <div className="landing__cards">
           <DemoCard
+            to="/file"
+            layer="Offline"
+            title={t('file.title')}
+            description={t('home.demoFileDesc')}
+            api="enhanceAudio(file)"
+          />
+          <DemoCard
             to="/react"
             layer="Layer 3"
             title={t('react.title')}
@@ -103,7 +101,7 @@ export function HomePage() {
 
       <details className="demo__code">
         <summary>{t('home.quickStart')}</summary>
-        <CodeBlock code={quickStart} language="tsx" />
+        <CodeBlock code={quickStart} language="typescript" />
       </details>
     </div>
   )

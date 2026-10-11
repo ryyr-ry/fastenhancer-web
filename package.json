@@ -1,7 +1,7 @@
 {
   "name": "fastenhancer-web",
   "version": "0.1.1",
-  "description": "Real-time voice noise removal for the web using FastEnhancer (ICASSP 2026) via C/WASM SIMD",
+  "description": "Mono/stereo voice noise removal for live and recorded audio using FastEnhancer (ICASSP 2026) via C/WASM SIMD",
   "type": "module",
   "main": "./dist/api/index.js",
   "module": "./dist/api/index.js",
@@ -22,6 +22,14 @@
     "./stream": {
       "types": "./dist/api/stream-denoiser.d.ts",
       "import": "./dist/api/stream-denoiser.js"
+    },
+    "./offline": {
+      "types": "./dist/api/enhance.d.ts",
+      "import": "./dist/api/enhance.js"
+    },
+    "./node": {
+      "types": "./dist/api/node.d.ts",
+      "import": "./dist/api/node.js"
     },
     "./react": {
       "types": "./dist/react/index.d.ts",

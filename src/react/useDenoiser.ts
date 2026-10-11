@@ -12,6 +12,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import type { StreamDenoiser } from '../api/stream-denoiser.js';
 import { loadModel, type LoadedModel } from '../api/loader.js';
+import type { ChannelCount } from '../api/channel-denoiser.js';
 
 export type ModelSize = 'tiny' | 'base' | 'small';
 
@@ -23,6 +24,8 @@ export type UseDenoiserState =
   | 'destroyed';
 
 export interface UseDenoiserOptions {
+  /** Preserve mono/stereo input, or choose the channel count explicitly. */
+  channelCount?: ChannelCount;
   /** Base URL for all resource files (omitted: auto-detected from import.meta.url) */
   baseUrl?: string;
   /** Explicitly specify SIMD usage (omitted: auto-detected) */
@@ -185,6 +188,7 @@ export function useDenoiser(
       }
 
       const sd = await model.createStreamDenoiser(stream, {
+        channelCount: opts?.channelCount,
         workletUrl: opts?.workletUrl,
         onWarning: (msg: string) => optionsRef.current?.onWarning?.(msg),
         keepAliveInBackground: opts?.keepAliveInBackground,

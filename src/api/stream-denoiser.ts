@@ -10,6 +10,7 @@
 
 import { DestroyedError, AudioContextError, WorkletError, ValidationError } from './errors.js';
 import { initProcessorBlobUrl } from './embedded-loader.js';
+import type { ChannelCount } from './channel-denoiser.js';
 
 /** Sample rate expected by the model (Hz) */
 const TARGET_SAMPLE_RATE = 48000;
@@ -26,6 +27,8 @@ type StreamDenoiserState = 'running' | 'destroyed';
 export interface StreamDenoiserOptions {
   /** Input microphone stream */
   inputStream: MediaStream;
+  /** Defaults to the input track's channel count, or mono when unspecified. */
+  channelCount?: ChannelCount;
   /** Binary extracted from WASM SINGLE_FILE (ArrayBuffer) */
   wasmBytes: ArrayBuffer;
   /** Weight binary (ArrayBuffer) */
@@ -52,6 +55,7 @@ export interface StreamDenoiserOptions {
 export interface StreamDenoiser {
   /** Clean output stream */
   readonly outputStream: MediaStream;
+  readonly channelCount: ChannelCount;
   /** Current state */
   readonly state: StreamDenoiserState;
   /** User-set bypass mode (does not reflect auto-passthrough) */
@@ -102,6 +106,15 @@ export async function createStreamDenoiser(
     throw new ValidationError(
       `Invalid modelSize: ${modelSize}. Must be 0 (tiny), 1 (base), or 2 (small).`,
     );
+  }
+
+  const inputChannels = inputStream.getAudioTracks()[0]?.getSettings?.().channelCount;
+  const channelCount = options.channelCount ?? (inputChannels === 2 ? 2 : 1);
+  if (channelCount !== 1 && channelCount !== 2) {
+    throw new ValidationError('channelCount must be 1 (mono) or 2 (stereo)');
+  }
+  if (options.channelCount === undefined && inputChannels !== undefined && inputChannels > 2) {
+    throw new ValidationError('More than two input channels are unsupported; select channelCount explicitly');
   }
 
   const emitWarning = (message: string): void => {
@@ -187,11 +200,16 @@ export async function createStreamDenoiser(
     workletNode = new AudioWorkletNode(audioContext, 'fastenhancer-processor', {
       numberOfInputs: 1,
       numberOfOutputs: 1,
-      outputChannelCount: [1],
+      outputChannelCount: [channelCount],
+      channelCount,
+      channelCountMode: 'explicit',
+      channelInterpretation: 'discrete',
+      processorOptions: { channelCount },
     });
 
     source = audioContext.createMediaStreamSource(inputStream);
     destination = audioContext.createMediaStreamDestination();
+    destination.channelCount = channelCount;
 
     source.connect(workletNode);
     workletNode.connect(destination);
@@ -241,6 +259,7 @@ export async function createStreamDenoiser(
     weightBytes: weightBytesTransfer,
     exportMap,
     modelSize,
+    channelCount,
   }, [wasmBytesTransfer, weightBytesTransfer]);
 
   try {
@@ -379,6 +398,7 @@ export async function createStreamDenoiser(
   audioContext.addEventListener('statechange', audioContextStateChangeHandler);
 
   const denoiser: StreamDenoiser = {
+    channelCount,
     get outputStream(): MediaStream {
       return destination.stream;
     },

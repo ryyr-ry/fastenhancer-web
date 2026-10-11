@@ -66,6 +66,8 @@ export interface Denoiser {
   bypass: boolean;
   agcEnabled: boolean;
   hpfEnabled: boolean;
+  /** Reset temporal state without unloading the model. */
+  reset(): void;
   destroy(): void;
   on(event: EventType, handler: EventHandler): void;
   off(event: EventType, handler: EventHandler): void;
@@ -206,6 +208,11 @@ function createDenoiserInstance(initialWasm: WasmInstance, initialStatePtr: numb
     set bypass(value: boolean) {
       ensureReady('set bypass');
       bypassEnabled = value;
+    },
+
+    reset(): void {
+      ensureReady('reset');
+      wasm._fe_reset(statePtr);
     },
 
     get agcEnabled(): boolean {
@@ -434,6 +441,10 @@ export async function isSupported(): Promise<SupportInfo> {
 }
 
 export { loadModel, clearModelCache, clearCachedModel } from './loader.js';
+export { createChannelDenoiser } from './channel-denoiser.js';
+export type { ChannelDenoiser, ChannelCount } from './channel-denoiser.js';
+export { enhancePcm, enhanceBuffer, enhanceAudio } from './enhance.js';
+export type { PcmAudio, EnhanceOptions } from './enhance.js';
 export type { LoadModelOptions, LoadedModel } from './loader.js';
 export { createStreamDenoiser } from './stream-denoiser.js';
 export type { StreamDenoiserOptions, StreamDenoiser, WorkletStateResponse } from './stream-denoiser.js';
