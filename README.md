@@ -117,6 +117,7 @@ yarn add fastenhancer-web
 import { enhanceAudio, enhanceBuffer, enhancePcm } from 'fastenhancer-web';
 
 const cleanWav = await enhanceAudio(file);       // File/Blob → ready-to-save WAV Blob
+const fastWav = await enhanceAudio(file, { parallel: { maxWorkers: 4 } });
 const cleanBuffer = await enhanceBuffer(buffer); // AudioBuffer → AudioBuffer
 const cleanPcm = await enhancePcm({ channels: [left, right], sampleRate: 44100 });
 ```
@@ -216,8 +217,9 @@ Bundlers with tree-shaking will only include the model you actually import.
 | `enhanceBuffer(buffer, options?)` | `AudioBuffer` → `AudioBuffer` | Browser |
 | `enhancePcm(audio, options?)` | `{ channels: Float32Array[], sampleRate }` → same PCM shape | Browser / Node / Bun |
 | `enhanceFile(inputPath, outputPath, options?)` | WAV path → saved WAV | Node/Bun, import from `fastenhancer-web/node` |
+| `enhanceWavStream(file, options?)` | WAV `Blob` → async iterable of encoded WAV byte chunks | Browser; cooperative inline fallback |
 
-All accept mono/stereo input. PCM and WAV support integer sample rates from 8–192 kHz. Files use browser-supported codecs; non-WAV files produce 48 kHz output. Processing retains channel order and decoded sample count. It buffers the entire recording in memory, so memory use grows with recording length.
+All accept mono/stereo input. PCM and WAV support integer sample rates from 8–192 kHz. Files use browser-supported codecs; non-WAV files produce 48 kHz output. Processing retains channel order and decoded sample count. Parallel WAV file processing reads and encodes bounded blocks; PCM/AudioBuffer and compressed decoding still require full-size arrays. Returning a Blob retains the final encoded output. Use `enhanceWavStream` to consume bytes incrementally.
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -227,8 +229,11 @@ All accept mono/stereo input. PCM and WAV support integer sample rates from 8–
 | `signal` | — | `AbortSignal` for cancellation |
 | `onProgress` | — | Callback with processing progress from 0 to 1 |
 | `worker` | Automatic | Browser module Worker; `true` requires one, `false` uses cooperative inline processing |
+| `parallel` | `false` | `{ maxWorkers?: 1–32, engine?: 'auto' \| 'channels' \| 'batch' }`; exact offline parallel processing |
 
-`enhanceFile` uses inline processing; omit `worker` in Node/Bun (`worker: true` requires a browser). WAV output is PCM16 and does not retain source container metadata. Cancellation prevents returning or saving a cancelled result; browser codec decoding cannot be interrupted mid-call. See [deployment and memory requirements](docs/stereo-offline.md).
+`parallel` is opt-in and incompatible with `worker: false`. Its worker limit is shared across a job and capped by available CPU capacity; jobs in one coordinator share a budget. `auto` uses the additional SIMD batch engine for recordings of at least four seconds when useful, preserving recurrent history while distributing frames and frequency positions. Scalar, short clips, one-worker automatic processing and existing self-hosted resources use the legacy per-channel engine. All modes preserve output samples; time segments are never independently reset.
+
+Node/Bun callers should import `enhanceFile` and the parallel PCM adapter `enhancePcm` from `fastenhancer-web/node`, and omit `worker`. Parallel `enhanceFile` reads/writes WAV incrementally and replaces the output only after success. The default file API retains its existing inline behavior. WAV output is PCM16 and does not retain source container metadata. Cancellation prevents returning or saving a cancelled result; browser codec decoding cannot be interrupted mid-call. An async byte-stream consumer must discard partial output if iteration fails. See [parallel processing, performance and deployment](docs/offline-parallel-processing.md).
 
 ### `model.createChannelDenoiser(channelCount?)` — Mono/stereo frames
 
@@ -514,7 +519,7 @@ bunx playwright test
 | TypeScript unit / adversarial | Node.js | vitest | API, worklet, lifecycle, stereo isolation and file processing |
 | Browser E2E | Chromium / Firefox / WebKit | Playwright | AudioWorklet and offline module Worker integration |
 
-Stereo/offline and recovery validation: **279 unit/adversarial tests** and **26 selected Chromium tests** passed, including Base/Small scalar/SIMD performance checks and controlled stereo recovery. The production demo also completed a stereo 44.1 kHz upload, enhancement and WAV download round trip. These results do not imply a full run of every native/WASM or browser suite.
+Stereo/offline, recovery and parallel processing validation: **420 unit/adversarial tests** and **41 selected Chromium tests** passed, including Base/Small scalar/SIMD performance checks, controlled stereo recovery and exact internal parallel processing. Bun also matched the legacy PCM and WAV results. The production demo passed mono/stereo and standard/parallel WAV round trips under its deployment subpath. These results do not imply a full run of every native/WASM or browser suite. See [parallel processing results and limitations](docs/offline-parallel-processing.md).
 
 ---
 

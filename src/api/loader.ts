@@ -358,8 +358,8 @@ function buildLoadedModel(
     wasmFactory,
 
     async createDenoiser(options?: { isolated?: boolean }): Promise<Denoiser> {
-      // Dynamic import intentionally avoids a runtime circular dependency with index.ts.
-      const { createDenoiser: create } = await import('./index.js');
+      // The frame engine has no Worker adapters: avoid bundling nested/circular Workers.
+      const { createDenoiser: create } = await import('./frame-denoiser.js');
       return create({
         model: {
           size: modelSize,

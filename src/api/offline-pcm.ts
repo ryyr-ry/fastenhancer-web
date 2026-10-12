@@ -18,6 +18,8 @@ export interface EnhanceOptions {
   onProgress?: (progress: number) => void;
   /** Browser: use a module Worker by default. Set false for restricted CSP. */
   worker?: boolean;
+  /** Opt-in exact parallel processing. The limit applies to the entire job. */
+  parallel?: false | { maxWorkers?: number; engine?: 'auto' | 'channels' | 'batch' };
 }
 
 export function checkAbort(signal?: AbortSignal): void {

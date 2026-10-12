@@ -2,6 +2,8 @@ export const en = {
   'nav.home': 'Home',
   'nav.file': 'Audio files',
   'file.title': 'Enhance an audio file',
+  'file.parallel': 'Faster processing',
+  'file.parallelNote': 'Faster processing uses multiple CPU cores. You can turn it off while using other apps.',
   'file.subtitle': 'Choose a mono or stereo recording, enhance it, and save the result.',
   'file.formats': 'Supports WAV and audio formats your browser can decode. Audio is processed on your device and is never uploaded. Output is 16-bit WAV.',
   'file.stereoNote': 'Channels are processed independently, retaining their count and duration. The model is designed for speech; music may change in tone or stereo image.',

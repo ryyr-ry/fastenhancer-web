@@ -51,6 +51,7 @@
   "sideEffects": false,
   "scripts": {
     "embed": "bun run scripts/embed-assets.ts",
+    "restore:assets": "bun run scripts/restore-embedded-assets.ts",
     "prebuild:check": "node -e \"const fs=require('fs');const missing=[];['weights/fe_tiny_48k.bin','weights/fe_base_48k.bin','weights/fe_small_48k.bin'].forEach(f=>{if(!fs.existsSync(f))missing.push(f)});if(missing.length){console.error('Missing required files: '+missing.join(', ')+'\\nRun build:wasm:all first.');process.exit(1)}\"",
     "build": "bun run prebuild:check && bun run embed && tsc && node -e \"require('fs').cpSync('src/worklet/processor.js','dist/worklet/processor.js')\"",
     "build:ts": "bun run embed && tsc && node -e \"require('fs').cpSync('src/worklet/processor.js','dist/worklet/processor.js')\"",
@@ -59,8 +60,9 @@
     "build:wasm:simd": "powershell -ExecutionPolicy Bypass -File ./scripts/build-wasm.ps1 -Variant simd",
     "build:wasm:all": "powershell -ExecutionPolicy Bypass -Command \"foreach ($m in 'tiny','base','small') { foreach ($v in 'simd','scalar') { & ./scripts/build-wasm.ps1 -Model $m -Variant $v -WorkletBuild } }\"",
     "build:wasm:worklet": "powershell -ExecutionPolicy Bypass -File ./scripts/build-wasm.ps1 -WorkletBuild",
+    "build:wasm:offline": "node scripts/build-offline-wasm.mjs",
     "build:all": "powershell -ExecutionPolicy Bypass -Command \"foreach ($m in 'tiny','base','small') { foreach ($v in 'simd','scalar') { & ./scripts/build-wasm.ps1 -Model $m -Variant $v -WorkletBuild } }\" && bun run embed && tsc && node -e \"require('fs').cpSync('src/worklet/processor.js','dist/worklet/processor.js')\"",
-    "test": "bun run embed && vitest run",
+    "test": "bun run restore:assets && bun run embed && tsc && vitest run",
     "test:watch": "vitest watch",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "powershell -ExecutionPolicy Bypass -Command \"foreach ($m in 'tiny','base','small') { foreach ($v in 'simd','scalar') { & ./scripts/build-wasm.ps1 -Model $m -Variant $v -WorkletBuild } }\" && bun run embed && tsc && node -e \"require('fs').cpSync('src/worklet/processor.js','dist/worklet/processor.js')\" && bunx playwright test",

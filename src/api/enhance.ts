@@ -4,6 +4,9 @@ import {
 } from './offline-pcm.js';
 import { decodeWav, encodeWav, isWav } from './wav.js';
 import { FastEnhancerError, ModelInitError, ValidationError, WasmLoadError } from './errors.js';
+import { createBrowserPool, enhanceBrowserParallel } from './offline-browser.js';
+import { parallelLimit } from './offline-pool.js';
+import { enhanceWavChunks } from './offline-wav.js';
 
 export type { EnhanceOptions, PcmAudio } from './offline-pcm.js';
 
@@ -77,6 +80,11 @@ export async function enhancePcm(audio: PcmAudio, options: EnhanceOptions = {}):
   checkAbort(options.signal);
   validatePcm(audio);
   const hasWorker = typeof window !== 'undefined' && typeof Worker !== 'undefined';
+  if (options.parallel !== undefined && options.parallel !== false) {
+    parallelLimit(options);
+    if (!hasWorker) throw new ValidationError('Parallel module Workers are unavailable; Node callers should use fastenhancer-web/node');
+    return enhanceBrowserParallel(audio, options);
+  }
   if (options.worker === true && !hasWorker) {
     throw new ValidationError('Module Workers are unavailable; omit worker or set worker: false');
   }
@@ -102,6 +110,17 @@ export async function enhanceBuffer(buffer: AudioBuffer, options: EnhanceOptions
  */
 export async function enhanceAudio(file: Blob, options: EnhanceOptions = {}): Promise<Blob> {
   checkAbort(options.signal);
+  if (options.parallel !== undefined && options.parallel !== false) {
+    parallelLimit(options);
+    const header = await file.slice(0, 12).arrayBuffer();
+    checkAbort(options.signal);
+    if (isWav(header)) {
+      const parts: Uint8Array<ArrayBuffer>[] = [];
+      for await (const chunk of enhanceWavStream(file, options)) parts.push(chunk as Uint8Array<ArrayBuffer>);
+      checkAbort(options.signal);
+      return new Blob(parts, { type: 'audio/wav' });
+    }
+  }
   const bytes = await file.arrayBuffer();
   checkAbort(options.signal);
   let audio: PcmAudio;
@@ -126,4 +145,13 @@ export async function enhanceAudio(file: Blob, options: EnhanceOptions = {}): Pr
   const clean = await enhancePcm(audio, options);
   checkAbort(options.signal);
   return new Blob([encodeWav(clean)], { type: 'audio/wav' });
+}
+
+/** Browser WAV input → encoded WAV chunks; consumer pacing bounds working memory. */
+export async function* enhanceWavStream(file: Blob, options: EnhanceOptions = {}): AsyncGenerator<Uint8Array> {
+  checkAbort(options.signal);
+  const pool = await createBrowserPool(options);
+  try {
+    yield* enhanceWavChunks({ size: file.size, read: (offset, length) => file.slice(offset, offset + length).arrayBuffer() }, options, pool);
+  } finally { await pool.close(); }
 }

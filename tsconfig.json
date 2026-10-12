@@ -17,6 +17,6 @@
     "types": [],
     "lib": ["ES2022", "DOM", "DOM.Iterable", "ESNext.Disposable"]
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "src/api/enhance-worker.js"],
+  "include": ["src/**/*.ts", "src/**/*.tsx", "src/api/enhance-worker.js", "src/api/parallel-worker.js", "src/api/node-worker.js"],
   "exclude": ["node_modules", "dist", "tests"]
 }

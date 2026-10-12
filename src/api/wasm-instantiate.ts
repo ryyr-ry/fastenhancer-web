@@ -57,10 +57,11 @@ function isEmscriptenMinified(moduleName: string, funcName: string): boolean {
 export async function instantiateWasm(
   wasmBytes: ArrayBuffer,
   exportMap: Record<string, string>,
+  compiledModule?: WebAssembly.Module,
 ): Promise<WasmInstance> {
   let module: WebAssembly.Module;
   try {
-    module = await WebAssembly.compile(wasmBytes);
+    module = compiledModule ?? await WebAssembly.compile(wasmBytes);
   } catch (err) {
     throw new WasmLoadError(
       `Failed to compile WASM module: ${err instanceof Error ? err.message : String(err)}`,

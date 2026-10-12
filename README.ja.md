@@ -51,6 +51,7 @@ yarn add fastenhancer-web
 import { enhanceAudio, enhanceBuffer, enhancePcm } from 'fastenhancer-web';
 
 const cleanWav = await enhanceAudio(file); // File/Blob → 保存できるWAV Blob
+const fastWav = await enhanceAudio(file, { parallel: { maxWorkers: 4 } });
 const cleanBuffer = await enhanceBuffer(buffer); // AudioBuffer → AudioBuffer
 const cleanPcm = await enhancePcm({ channels: [left, right], sampleRate: 44100 });
 ```
@@ -150,8 +151,9 @@ const model = await loadModel('small', { baseUrl: 'https://cdn.example.com/model
 | `enhanceBuffer(buffer, options?)` | `AudioBuffer` → `AudioBuffer` | ブラウザ |
 | `enhancePcm(audio, options?)` | `{ channels: Float32Array[], sampleRate }` → 同じ形式のPCM | ブラウザ / Node / Bun |
 | `enhanceFile(inputPath, outputPath, options?)` | WAVのパス → WAV保存 | Node/Bun（`fastenhancer-web/node` からインポート） |
+| `enhanceWavStream(file, options?)` | WAVの`Blob` → WAVバイト列の非同期イテレーター | ブラウザ（呼び出し元での実行にも対応） |
 
-すべてモノラル・ステレオに対応しています。PCMとWAVのサンプルレートは8〜192 kHzの整数値に対応します。WAV以外のファイルはブラウザ対応のコーデックで読み込み、48 kHzで出力します。チャンネルの順序とデコード後のサンプル数を保持します。録音全体をメモリに展開するため、長い録音ほどメモリが必要です。
+すべてモノラル・ステレオに対応しています。PCMとWAVのサンプルレートは8〜192 kHzの整数値に対応します。WAV以外のファイルはブラウザ対応のコーデックで読み込み、48 kHzで出力します。チャンネルの順序とデコード後のサンプル数を保持します。並列WAV処理は小さな範囲を読み込み・書き出します。PCM・AudioBuffer・圧縮音声のデコードは全体の配列が必要で、Blobを返す場合は最終出力もメモリに保持します。`enhanceWavStream` ではバイト列を順次受け取れます。
 
 | オプション | 既定値 | 説明 |
 |------------|--------|------|
@@ -161,8 +163,11 @@ const model = await loadModel('small', { baseUrl: 'https://cdn.example.com/model
 | `signal` | — | キャンセル用の `AbortSignal` |
 | `onProgress` | — | 0〜1の処理進捗を受け取るコールバック |
 | `worker` | 自動 | ブラウザのmodule Workerを使用。`true` は必須、`false` は呼び出し元で定期的に処理を中断しながら実行 |
+| `parallel` | `false` | `{ maxWorkers?: 1〜32, engine?: 'auto' \| 'channels' \| 'batch' }`：出力を維持した並列処理 |
 
-`enhanceFile` は呼び出し元で処理します。Node/Bunでは `worker` を省略してください（`worker: true` はブラウザ専用です）。WAV出力は16ビットPCMで、元ファイルのコンテナメタデータは保持しません。キャンセルした処理結果は返却・保存されませんが、ブラウザのデコード呼び出し自体は途中で中断できません。[配布方法とメモリの制約](docs/stereo-offline.md)もご参照ください。
+`parallel` は明示的に指定し、`worker: false` との併用はエラーになります。Worker数はジョブ全体の上限で、CPUの余裕に合わせて制限し、同じ実行元の複数ジョブでも予算を共有します。`auto` は4秒以上の録音で効果が見込める場合に専用SIMDエンジンを使い、履歴を保持してフレーム・周波数位置を分担します。scalar・短い音声・自動選択で1 Workerとなる場合・従来のセルフホスト構成では、従来エンジンを使います。時間区間ごとに履歴をリセットする方式は使いません。
+
+Node/Bunでは `enhanceFile` と並列PCMアダプターの `enhancePcm` を `fastenhancer-web/node` からインポートし、`worker` を省略してください。並列 `enhanceFile` はWAVを逐次読み書きし、成功後だけ出力を置き換えます。オプションを省略したファイルAPIは従来の動作を維持します。WAV出力は16ビットPCMで、元のコンテナメタデータは保持しません。キャンセルした結果は返却・保存されませんが、ブラウザのデコード呼び出し自体は途中で中断できません。バイト列を逐次消費する場合は、反復が失敗したら途中の出力を破棄してください。[設計・性能・配布方法](docs/offline-parallel-processing.md)もご参照ください。
 
 ### `model.createChannelDenoiser(channelCount?)` — モノラル・ステレオのフレーム処理
 
@@ -448,7 +453,7 @@ bunx playwright test
 | TypeScript unit / adversarial | Node.js | vitest | API・worklet・ライフサイクル・左右の独立性・ファイル処理 |
 | Browser E2E | Chromium / Firefox / WebKit | Playwright | AudioWorklet と録音済み音声用module Workerの統合 |
 
-ステレオ・録音済み音声・性能監視の実装では、**単体・異常系279件**と**Chromiumの選択した26件**が通過しています。Base・Smallのscalar/SIMDの性能試験と、ステレオでの負荷変動・復帰も含みます。本番用にビルドしたデモでも、44.1 kHzのステレオ音声の選択・処理・WAV保存を確認しました。C・WASM・全ブラウザのテストをすべて再実行した結果ではありません。
+ステレオ・録音済み音声・性能監視・並列処理では、**単体・異常系420件**と**Chromiumの選択した41件**が通過しています。Base・Smallのscalar/SIMDの性能試験、ステレオの負荷変動・復帰、内部並列化の出力一致も含みます。BunでもPCM・WAVが従来処理と一致しました。本番用デモでは配信先と同じサブパスで、モノラル／ステレオ、標準／並列処理のWAV保存を確認しています。C・WASM・全ブラウザをすべて再実行した結果ではありません。[測定と検証範囲](docs/offline-parallel-processing.md)をご参照ください。
 
 ---
 
