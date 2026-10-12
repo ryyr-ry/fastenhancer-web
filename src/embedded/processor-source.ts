@@ -22,12 +22,16 @@ const QUANTUM = 128;
 const MAX_STORED_TIMES = 2000;
 const DEFAULT_STATS_INTERVAL = 100;
 const LOAD_WINDOW_MS = 200;
+const PERSISTENT_LOAD_MS = 1000;
 const ENTRY_LOAD = 1.10;
-const RECOVERY_LOAD = 1.05;
+const FAST_ENTRY_LOAD = 1.50;
+const RECOVERY_LOAD = ENTRY_LOAD;
 const SLOW_FRAME_LOAD = 1.05;
 const SEVERE_FRAME_LOAD = 2;
 const SEVERE_FRAMES = 3;
 const RECOVERY_FRAMES = 4;
+const MAX_RECOVERY_FRAMES = 12;
+const RECOVERY_WARMUP_FRAMES = 2;
 const INITIAL_PROBE_MS = 32;
 const MAX_PROBE_MS = 128;
 const NONZERO_THRESHOLD = 1e-8;
@@ -98,6 +102,15 @@ class ProcessingMonitor {
     this._trendFrames = 0;
   }
 
+  timingChanged() {
+    // Never combine quantized performance ticks with Date measurements. The
+    // zero-tick fallback otherwise makes their average systematically too high.
+    this._clearWindow();
+    this.averageMs = 0;
+    this._trialCount = 0;
+    this._trialSum = 0;
+  }
+
   setBackground(enabled) {
     if (this.background === enabled) return;
     this.background = enabled;
@@ -115,6 +128,7 @@ class ProcessingMonitor {
     this.mode = 'recovering';
     this._trialCount = 0;
     this._trialSum = 0;
+    this._severeCount = 0;
     return true;
   }
 
@@ -129,7 +143,7 @@ class ProcessingMonitor {
     this._waitForProbe();
   }
 
-  record(ms) {
+  record(ms, timingToleranceMs = 0) {
     // A wall clock can move backwards and some worklets expose a frozen timer.
     // Unknown timing is not evidence of either overload or successful recovery.
     if (!Number.isFinite(ms) || ms < 0) {
@@ -139,18 +153,34 @@ class ProcessingMonitor {
     }
     const budget = this.budgetMs;
     if (this.mode === 'recovering') {
-      this._trialCount++;
-      this._trialSum += ms;
-      this.averageMs = this._trialSum / this._trialCount;
-      // A cold first probe may be slow even though sustained inference fits.
-      // Abort only when the four-frame trial cannot possibly fit its total
-      // budget; otherwise let consecutive frames warm the engine and cache.
-      if (this._trialSum > budget * RECOVERY_LOAD * RECOVERY_FRAMES) {
+      this._severeCount = ms >= budget * SEVERE_FRAME_LOAD ? this._severeCount + 1 : 0;
+      if (this._severeCount >= SEVERE_FRAMES * (this.background ? 4 : 1)) {
         this.fail();
-      } else if (this._trialCount >= RECOVERY_FRAMES) {
-        this.mode = 'processing';
-        this._clearWindow();
-        this._probeDelayMs = INITIAL_PROBE_MS;
+        return;
+      }
+      this._trialCount++;
+      // Reset STFT/RNN state needs consecutive input, and the first calls may
+      // also have cold caches. These two frames stay dry and do not decide
+      // whether steady inference is sustainable; severe overload still counts.
+      if (this._trialCount <= RECOVERY_WARMUP_FRAMES) return;
+      this._trialSum += ms;
+      const measuredFrames = this._trialCount - RECOVERY_WARMUP_FRAMES;
+      this.averageMs = this._trialSum / measuredFrames;
+      // Entry and recovery must agree on sustainable load. A stricter recovery
+      // threshold traps an otherwise accepted model in repeated bypass trials.
+      const recoveryBudget = budget * RECOVERY_LOAD;
+      if (this._trialSum > recoveryBudget * RECOVERY_FRAMES
+        && this.averageMs > recoveryBudget + timingToleranceMs) {
+        this.fail();
+      } else if (measuredFrames >= RECOVERY_FRAMES) {
+        if (this.averageMs <= recoveryBudget) {
+          this.mode = 'processing';
+          this._clearWindow();
+          this._probeDelayMs = INITIAL_PROBE_MS;
+        } else if (measuredFrames >= MAX_RECOVERY_FRAMES) this.fail();
+        // Millisecond rounding can make four healthy frames look slightly too
+        // slow. Extend only such borderline trials; keep the same threshold,
+        // and bound the extra work instead of resetting and cooling again.
       }
       return;
     }
@@ -170,11 +200,13 @@ class ProcessingMonitor {
 
     const highAverage = this._count === this._windowFrames && this.averageMs > budget * ENTRY_LOAD;
     this._trendFrames = highAverage ? this._trendFrames + 1 : 0;
-    // Mostly slow frames establish overload in one window. More variable load
-    // needs a second window of evidence; it must not evade protection simply
-    // because fast frames keep breaking an overrun streak.
+    // A 200 ms scheduling/CPU-frequency fluctuation is not enough evidence for
+    // modest overload. Demand roughly a second of continuously high averages;
+    // large, mostly slow load still protects after one short window.
+    const mostlySlow = this._slowCount >= Math.ceil(this._windowFrames * 0.7);
+    const persistentFrames = Math.ceil(PERSISTENT_LOAD_MS * (this.background ? 4 : 1) / budget);
     const sustained = highAverage
-      && (this._slowCount >= Math.ceil(this._windowFrames * 0.7) || this._trendFrames >= this._windowFrames)
+      && ((mostlySlow && this.averageMs >= budget * FAST_ENTRY_LOAD) || this._trendFrames >= persistentFrames)
       && ms > budget * SLOW_FRAME_LOAD;
     const severe = this._severeCount >= SEVERE_FRAMES * (this.background ? 4 : 1);
     if ((sustained || severe) && this._debtMs >= budget * 3) {
@@ -205,6 +237,7 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
     this._latencySamples = DEFAULT_HOP_SIZE;
     this._dryDelayPos = 0;
     this._timingSource = _perf ? 'performance' : _dateNow ? 'date' : 'unavailable';
+    this._useDateTiming = !_perf;
     this._audioFrameCount = 0;
     this._passthroughFrames = 0;
     this._inputWritePos = 0;
@@ -623,12 +656,15 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
   }
 
   _runWasmFrame(hopSize) {
-    const perfStart = _perf ? _perf.now() : NaN;
-    const dateStart = _dateNow ? _dateNow() : NaN;
     if (this._engineNeedsReset) {
       this._forEachState('_fe_reset');
       this._engineNeedsReset = false;
     }
+
+    // Reset is a one-off cost, not the model's sustained inference rate. It can
+    // be substantial for Small and must not poison every new recovery trial.
+    const perfStart = _perf ? _perf.now() : NaN;
+    const dateStart = _dateNow ? _dateNow() : NaN;
 
     for (const channel of this._channels) {
       const heapF32 = this._getHeapF32(channel);
@@ -639,11 +675,19 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
     const perfElapsed = _perf ? _perf.now() - perfStart : NaN;
     const dateElapsed = _dateNow ? _dateNow() - dateStart : NaN;
     let elapsed = NaN;
-    if (!_perfNowFrozen && Number.isFinite(perfElapsed) && perfElapsed > 0) {
+    if (!this._useDateTiming && _dateNow
+      && (_perfNowFrozen || (perfElapsed === 0 && Number.isFinite(dateElapsed) && dateElapsed > 0))) {
+      this._useDateTiming = true;
+      this._monitor.timingChanged();
+      this._timesIndex = 0;
+      this._timesCount = 0;
+    }
+    if (!this._useDateTiming && !_perfNowFrozen && Number.isFinite(perfElapsed) && perfElapsed > 0) {
       elapsed = perfElapsed;
       this._timingSource = 'performance';
     } else if (Number.isFinite(dateElapsed) && dateElapsed >= 0) {
-      // performance.now can advance between callbacks yet freeze within one.
+      // Once a frozen/coarse intra-callback clock is observed, keep Date as the
+      // source instead of selecting only the nonzero (upward-rounded) ticks.
       elapsed = dateElapsed;
       this._timingSource = 'date';
     } else {
@@ -672,7 +716,8 @@ class FastEnhancerProcessor extends AudioWorkletProcessor {
       return;
     }
 
-    this._monitor.record(this._runWasmFrame(hopSize));
+    const elapsed = this._runWasmFrame(hopSize);
+    this._monitor.record(elapsed, this._timingSource === 'date' ? 1 : 0);
     if (this._monitor.mode === 'bypass') this._engineNeedsReset = true;
     this._renderFrame(hopSize, true);
     if (this._warmupFrames > 0) this._warmupFrames--;

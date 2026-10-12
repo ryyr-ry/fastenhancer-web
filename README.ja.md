@@ -204,6 +204,8 @@ const {
 | `options.onError` | `(err: Error) => void` | エラーコールバック |
 | `options.keepAliveInBackground` | `boolean` | バックグラウンド時も音声処理を維持（モバイル向け） |
 
+入力がモノラルと分かっている場合は、hookや `model.createStreamDenoiser` に `{ channelCount: 1 }` を指定してください。生成直後の `MediaStreamAudioDestinationNode` は、モノラル設定後も一時的に既定の2チャンネルを報告し、推論が2回走る場合があります。音声デモはモノラルを明示し、本物のステレオ入力には引き続き左右独立のエンジンを使います。
+
 **主な特性:**
 - `start()` 引数なしでマイクを自動取得（getUserMedia を内部で呼び出し）
 - `start(stream)` で既存の MediaStream を使用（WebRTC、カスタム制約など）
@@ -344,7 +346,7 @@ import { WasmLoadError, DestroyedError } from 'fastenhancer-web/errors';
 | メモリ | 全バッファ初期化時一括確保（実行時 malloc ゼロ） |
 | パッケージサイズ | 全3モデル＋両バリアント埋め込み（tarball 約 1.85 MB）、ツリーシェイキング対応 |
 
-リアルタイム処理の自動保護は、約200 msの平均負荷と超過時間の蓄積で判断します。わずかな超過が5回続いただけでバイパスする方式を改め、重大な遅延が続く場合は早く保護します。32 ms後から復帰を試し、失敗時は最大128 msまで間隔を広げます。4つの連続フレームを確認してからクロスフェードでノイズ除去へ戻します。手動バイパスも含め、未処理音と処理音のSTFT遅延をそろえます。React・ストリームのデモには自動保護中の表示を追加しています。[設計と検証の詳細](docs/performance-monitoring.md)をご参照ください。
+リアルタイム処理の自動保護は、約200 msの移動平均と超過時間の蓄積で判断します。軽度の超過は約1秒の継続を確認し、大きな負荷や重大な遅延には早く保護を適用します。32 ms後から復帰を試し、失敗時は最大128 msまで間隔を広げます。2つの連続フレームで状態を温め、続く4フレームを通常時と同じ負荷基準で確認してからクロスフェードで戻します。一度のリセット費用を推論負荷に含めず、停止・粗い時計を検出したWorkletは以後Dateの時計を使い、異なる時計の混用を防ぎます。手動バイパスも含め、未処理音と処理音のSTFT遅延をそろえます。React・ストリームのデモには自動保護中の表示を追加しています。[設計と検証の詳細](docs/performance-monitoring.md)をご参照ください。
 
 ---
 
@@ -453,7 +455,7 @@ bunx playwright test
 | TypeScript unit / adversarial | Node.js | vitest | API・worklet・ライフサイクル・左右の独立性・ファイル処理 |
 | Browser E2E | Chromium / Firefox / WebKit | Playwright | AudioWorklet と録音済み音声用module Workerの統合 |
 
-ステレオ・録音済み音声・性能監視・並列処理では、**単体・異常系420件**と**Chromiumの選択した41件**が通過しています。Base・Smallのscalar/SIMDの性能試験、ステレオの負荷変動・復帰、内部並列化の出力一致も含みます。BunでもPCM・WAVが従来処理と一致しました。本番用デモでは配信先と同じサブパスで、モノラル／ステレオ、標準／並列処理のWAV保存を確認しています。C・WASM・全ブラウザをすべて再実行した結果ではありません。[測定と検証範囲](docs/offline-parallel-processing.md)をご参照ください。
+今回のリアルタイム処理の修正では、**単体・異常系426件**と**Chromiumの選択した43件**が通過しています。Base・Smallのscalar/SIMDの性能試験、ステレオの監視6条件、埋め込み／静的WorkletのSmallストリームを含みます。本番用のストリーム・Reactデモも8条件で、配信先と同じサブパス、モノラル推論、復帰、粗い時計、周期的な負荷変動を確認しました。スマートフォン実機と今回のFirefox・Safariの検証は未実施です。以前の録音済み音声・並列処理では、BunのPCM・WAVと本番デモのWAV保存も従来結果と一致しています。[測定と検証範囲](docs/offline-parallel-processing.md)をご参照ください。
 
 ---
 

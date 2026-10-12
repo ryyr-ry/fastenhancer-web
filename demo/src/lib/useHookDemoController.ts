@@ -52,6 +52,9 @@ export function useHookDemoController(): HookDemoController {
 
   const options = useMemo(
     () => ({
+      // Voice presets and the requested microphone are mono, as in the frame
+      // demo. MediaStreamDestination can initially report its stereo default.
+      channelCount: 1 as const,
       baseUrl: './assets/wasm/',
       workletUrl: './assets/worklet/processor.js',
       audioConstraints: {

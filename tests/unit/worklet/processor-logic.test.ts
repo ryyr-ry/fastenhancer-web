@@ -34,6 +34,58 @@ describe('shipped Worklet performance monitoring', () => {
     }
   });
 
+  it('keeps processing through a 320 ms CPU fluctuation with otherwise healthy load', () => {
+    const h = createWorkletHarness();
+    h.setCost(h.budgetMs * 0.9); run(h, 50);
+    h.setCost(h.budgetMs * 1.3); run(h, 30);
+    h.setCost(h.budgetMs * 0.9); run(h, 150);
+    expect(h.automaticEvents).toEqual([]);
+  });
+
+  it('recovers at a load that is accepted during normal processing', () => {
+    const h = createWorkletHarness(); overload(h);
+    h.setCost(h.budgetMs * 1.08); run(h, 300);
+    expect(h.automaticEvents).toEqual([true, false]);
+    expect(h.calls).toBeGreaterThan(290);
+  });
+
+  it('does not restart a sustainable recovery because four integer clock readings round upward', () => {
+    for (let phase = 0; phase < 10; phase++) {
+      const h = createWorkletHarness({ timer: 'callback-frozen', dateResolutionMs: 1, clockStartMs: 1000 + phase / 10 });
+      overload(h);
+      h.setCost(h.budgetMs * 1.08); run(h, 12);
+      expect(h.automaticEvents).toEqual([true, false]);
+      expect(h.resets).toBe(1);
+      run(h, 150);
+      expect(h.automaticEvents).toEqual([true, false]);
+    }
+  });
+
+  it('does not repeatedly charge a large model reset to the inference recovery budget', () => {
+    const h = createWorkletHarness(); overload(h);
+    h.setResetCost(h.budgetMs * 5);
+    h.setCost(h.budgetMs * 0.9); run(h, 100);
+    expect(h.automaticEvents).toEqual([true, false]);
+    expect(h.resets).toBe(1);
+  });
+
+  it('warms consecutive cold frames before measuring sustained recovery load', () => {
+    const h = createWorkletHarness(); overload(h);
+    h.setCost(h.budgetMs * 1.8); run(h, 4); // Wait two frames, then run two cold frames.
+    h.setCost(h.budgetMs * 0.95); run(h, 100);
+    expect(h.automaticEvents).toEqual([true, false]);
+    expect(h.resets).toBe(1);
+  });
+
+  it('does not bias load upward by mixing zero coarse ticks with a different clock', () => {
+    const h = createWorkletHarness({ timer: 'coarse-performance', clockStartMs: 1005 });
+    h.setCost(8); run(h, 300);
+    expect(h.automaticEvents).toEqual([]);
+    h.send({ type: 'get_stats' });
+    expect(h.messages.at(-1).timingSource).toBe('date');
+    expect(h.messages.at(-1).avgMs).toBeCloseTo(8, 10);
+  });
+
   it('ignores isolated large stalls after which the load is already healthy', () => {
     const h = createWorkletHarness();
     for (let i = 0; i < 100; i++) {
@@ -52,7 +104,7 @@ describe('shipped Worklet performance monitoring', () => {
 
   it('eventually protects against unsustainable alternating load despite a low slow-frame fraction', () => {
     const h = createWorkletHarness();
-    for (let i = 0; i < 45; i++) {
+    for (let i = 0; i < 160; i++) {
       h.setCost(h.budgetMs * (i % 2 ? 0.8 : 1.6)); h.frame();
     }
     expect(h.automaticEvents).toEqual([true]);
@@ -60,7 +112,7 @@ describe('shipped Worklet performance monitoring', () => {
 
   it('detects persistent overload even when occasional fast frames break a streak', () => {
     const h = createWorkletHarness();
-    for (let i = 0; i < 25; i++) {
+    for (let i = 0; i < 160; i++) {
       h.setCost(h.budgetMs * (i % 5 === 4 ? 0.5 : 1.5)); h.frame();
     }
     expect(h.automaticEvents).toEqual([true]);
@@ -70,7 +122,7 @@ describe('shipped Worklet performance monitoring', () => {
     const h = createWorkletHarness();
     h.setCost(h.budgetMs * 1.12); run(h, 19);
     expect(h.automaticEvents).toEqual([]);
-    run(h, 7);
+    run(h, 141);
     expect(h.automaticEvents).toEqual([true]);
   });
 
@@ -85,28 +137,28 @@ describe('shipped Worklet performance monitoring', () => {
     const calls = h.calls;
     h.setCost(h.budgetMs * 0.7); run(h, 2);
     expect(h.calls).toBe(calls);
-    run(h, 4);
+    run(h, 6);
     expect(h.automaticEvents).toEqual([true, false]);
     expect(h.resets).toBe(1);
     expect(h.processor._monitor.mode).toBe('processing');
-    expect(6 * h.budgetMs).toBeLessThan(100);
+    expect(8 * h.budgetMs).toBeLessThan(100);
   });
 
   it('requires consecutive live frames to recover, not isolated cheap probes', () => {
     const h = createWorkletHarness(); overload(h);
     h.setCost(h.budgetMs * 0.6); run(h, 3);
     expect(h.processor._monitor.mode).toBe('recovering');
-    h.setCost(h.budgetMs * 4); h.frame();
+    h.setCost(h.budgetMs * 4); run(h, 3);
     expect(h.processor._monitor.mode).toBe('bypass');
     expect(h.automaticEvents).toEqual([true]);
-    h.setCost(h.budgetMs * 0.6); run(h, 9);
+    h.setCost(h.budgetMs * 0.6); run(h, 12);
     expect(h.automaticEvents).toEqual([true, false]);
     expect(h.resets).toBe(2);
   });
 
   it('allows integer millisecond readings during recovery', () => {
     const h = createWorkletHarness({ timer: 'callback-frozen' }); overload(h);
-    h.setCost(11); run(h, 6); // Formerly failed every probe against 10.67 ms.
+    h.setCost(11); run(h, 8); // Formerly failed every probe against 10.67 ms.
     expect(h.automaticEvents).toEqual([true, false]);
     h.send({ type: 'get_state' });
     expect(h.messages.at(-1).timingSource).toBe('date');
@@ -115,14 +167,14 @@ describe('shipped Worklet performance monitoring', () => {
   it('accepts a moderately slow recovery frame when the trial average is healthy', () => {
     const h = createWorkletHarness(); overload(h);
     h.setCost(h.budgetMs * 1.2); run(h, 3);
-    h.setCost(h.budgetMs * 0.7); run(h, 3);
+    h.setCost(h.budgetMs * 0.7); run(h, 5);
     expect(h.automaticEvents).toEqual([true, false]);
   });
 
   it('does not remain stuck when the first cold probe is slow but consecutive processing fits', () => {
     const h = createWorkletHarness(); overload(h);
     run(h, 3); // One cold probe costs 2.5 budgets.
-    h.setCost(h.budgetMs * 0.5); run(h, 3);
+    h.setCost(h.budgetMs * 0.5); run(h, 5);
     expect(h.automaticEvents).toEqual([true, false]);
   });
 
@@ -135,11 +187,11 @@ describe('shipped Worklet performance monitoring', () => {
       if (h.calls !== previousCalls) { callFrames.push(f); previousCalls = h.calls; }
     }
     const gaps = callFrames.slice(1).map((frame, i) => frame - callFrames[i]);
-    expect(callFrames.slice(0, 6)).toEqual([3, 4, 10, 11, 23, 24]);
+    expect(callFrames.slice(0, 9)).toEqual([3, 4, 5, 11, 12, 13, 25, 26, 27]);
     expect(Math.max(...gaps) * h.budgetMs).toBeLessThanOrEqual(128 + h.budgetMs);
-    expect(h.calls).toBeLessThan(25);
+    expect(h.calls).toBeLessThan(32);
     expect(h.automaticEvents).toEqual([true]);
-    h.setCost(h.budgetMs * 0.5); run(h, 16);
+    h.setCost(h.budgetMs * 0.5); run(h, 18);
     expect(h.automaticEvents).toEqual([true, false]);
   });
 
@@ -174,7 +226,7 @@ describe('shipped Worklet performance monitoring', () => {
     h.setCost(h.budgetMs * 0.5);
     const calls = h.calls; h.frame();
     expect(h.calls).toBe(calls + 1);
-    run(h, 3);
+    run(h, 5);
     expect(h.automaticEvents).toEqual([true, false]);
   });
 
@@ -192,7 +244,7 @@ describe('shipped Worklet performance monitoring', () => {
     const output = h.frame([0.7, -0.6]);
     expect(output[0].every(v => v === 0.25)).toBe(true);
     expect(output[1].every(v => Math.abs(v + 0.4) < 1e-6)).toBe(true);
-    expect(h.automaticEvents).toEqual([true]); run(h, 6);
+    expect(h.automaticEvents).toEqual([true]); run(h, 8);
     expect(h.resets).toBe(2);
     expect(h.automaticEvents).toEqual([true, false]);
   });
@@ -218,10 +270,12 @@ describe('shipped Worklet performance monitoring', () => {
   });
 
   it('runs the same policy in embedded and self-hosted demo assets', () => {
+    const shippedSource = readFileSync(resolve(import.meta.dirname, '../../../src/worklet/processor.js'), 'utf8');
     const demoSource = readFileSync(resolve(import.meta.dirname, '../../../demo/public/assets/worklet/processor.js'), 'utf8');
     for (const source of [processorSource, demoSource]) {
+      expect(source).toBe(shippedSource);
       const h = createWorkletHarness({ source }); overload(h);
-      h.setCost(h.budgetMs * 0.7); run(h, 6);
+      h.setCost(h.budgetMs * 0.7); run(h, 8);
       expect(h.automaticEvents).toEqual([true, false]);
     }
   });
@@ -263,7 +317,7 @@ describe('aligned audio during protection and recovery', () => {
   it('crossfades both channels with the same ramp only after recovery completes', () => {
     const h = createWorkletHarness({ channels: 2 }); overload(h); run(h, 1);
     h.setCost(h.budgetMs * 0.5); h.frame([0.25, -0.5]);
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 5; i++) {
       const dry = h.frame([0.25, -0.5]);
       expect(dry[0].every(v => v === 0.25)).toBe(true);
       expect(dry[1].every(v => v === -0.5)).toBe(true);

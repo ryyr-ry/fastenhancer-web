@@ -7,19 +7,23 @@ import { runInNewContext } from 'node:vm';
  */
 export function createWorkletHarness(options: {
   channels?: number;
-  timer?: 'performance' | 'callback-frozen' | 'missing' | 'backwards';
+  timer?: 'performance' | 'callback-frozen' | 'coarse-performance' | 'missing' | 'backwards';
+  clockStartMs?: number;
+  dateResolutionMs?: number;
   source?: string;
 } = {}) {
   const channelCount = options.channels ?? 1;
-  const clock = { now: 1000, callbackTime: 1000 };
-  let costMs = 1, failChannel = -1, calls = 0, resets = 0;
+  const clock = { now: options.clockStartMs ?? 1000, callbackTime: options.clockStartMs ?? 1000 };
+  let costMs = 1, resetCostMs = 0, failChannel = -1, calls = 0, resets = 0;
   const messages: any[] = [];
   let Processor: any;
   const context = {
     performance: options.timer === 'missing' ? undefined : {
-      now: () => options.timer === 'callback-frozen' ? clock.callbackTime : clock.now,
+      now: () => options.timer === 'callback-frozen' ? clock.callbackTime
+        : options.timer === 'coarse-performance' ? Math.floor(clock.now / 16) * 16 : clock.now,
     },
-    Date: options.timer === 'missing' ? undefined : { now: () => clock.now },
+    Date: options.timer === 'missing' ? undefined : { now: () => options.dateResolutionMs
+      ? Math.floor(clock.now / options.dateResolutionMs) * options.dateResolutionMs : clock.now },
     currentTime: 0, sampleRate: 48000,
     Float32Array, Float64Array, Uint8Array, ArrayBuffer, WebAssembly,
     AudioWorkletProcessor: class {
@@ -49,7 +53,7 @@ export function createWorkletHarness(options: {
           for (let i = 0; i < 512; i++) heap[512 + i] = previous[i] * 0.5;
           previous.set(heap.subarray(0, 512));
         },
-        _fe_reset() { previous.fill(0); resets++; },
+        _fe_reset() { previous.fill(0); resets++; clock.now += resetCostMs / channelCount; },
         _fe_destroy() {}, _fe_set_agc() {}, _fe_set_hpf() {},
       },
     };
@@ -72,6 +76,7 @@ export function createWorkletHarness(options: {
     get calls() { return calls; },
     get resets() { return resets; },
     setCost(ms: number) { costMs = ms; },
+    setResetCost(ms: number) { resetCostMs = ms; },
     failNext(channel = 0) { failChannel = channel; },
     send(message: any) { processor.port.onmessage({ data: message }); },
     get automaticEvents() { return messages.filter(message => message.type === 'auto_bypass').map(message => message.enabled); },

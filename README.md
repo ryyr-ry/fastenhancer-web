@@ -270,6 +270,8 @@ const {
 | `options.onError` | `(err: Error) => void` | Error callback |
 | `options.keepAliveInBackground` | `boolean` | Keep audio alive when app is backgrounded (mobile) |
 
+For a known mono input, pass `{ channelCount: 1 }` to the hook or `model.createStreamDenoiser`. A newly created `MediaStreamAudioDestinationNode` can initially report its default two channels even after configuring mono, which would otherwise run two inference engines. The voice demos explicitly use mono; real stereo inputs continue to use two independent engines.
+
 **Features:**
 - `start()` with no arguments automatically acquires microphone via getUserMedia
 - `start(stream)` uses an existing MediaStream (WebRTC, custom constraints, etc.)
@@ -410,7 +412,7 @@ Clean Audio Output (48 kHz)
 | Memory | All buffers pre-allocated at init (zero runtime malloc) |
 | Package size | All 3 models + both variants embedded (~1.85 MB tarball); tree-shakable |
 
-Real-time protection evaluates about 200 ms of average load plus accumulated excess time, rather than bypassing after five slightly slow frames. Repeated severe stalls still trigger promptly. Recovery retries after 32 ms, backs off up to 128 ms, and validates four consecutive frames before crossfading back to denoising. Both dry and processed audio retain the same STFT delay, including manual bypass. The React and stream demos show when automatic protection is active. See [performance monitoring design and verification](docs/performance-monitoring.md).
+Real-time protection evaluates a 200 ms moving average and accumulated excess time. Modest overload must persist for about one second; large or repeated severe stalls still trigger sooner. Recovery retries after 32 ms, backs off up to 128 ms, warms two consecutive frames, and checks the next four with the same load threshold used during normal processing. One-off resets are excluded from the inference estimate, and a frozen/coarse timer switches permanently to Date timing for that Worklet instead of mixing clocks. Both dry and processed audio retain the same STFT delay, including manual bypass. The React and stream demos show when automatic protection is active. See [performance monitoring design and verification](docs/performance-monitoring.md).
 
 ---
 
@@ -519,7 +521,7 @@ bunx playwright test
 | TypeScript unit / adversarial | Node.js | vitest | API, worklet, lifecycle, stereo isolation and file processing |
 | Browser E2E | Chromium / Firefox / WebKit | Playwright | AudioWorklet and offline module Worker integration |
 
-Stereo/offline, recovery and parallel processing validation: **420 unit/adversarial tests** and **41 selected Chromium tests** passed, including Base/Small scalar/SIMD performance checks, controlled stereo recovery and exact internal parallel processing. Bun also matched the legacy PCM and WAV results. The production demo passed mono/stereo and standard/parallel WAV round trips under its deployment subpath. These results do not imply a full run of every native/WASM or browser suite. See [parallel processing results and limitations](docs/offline-parallel-processing.md).
+The latest real-time correction passed **426 unit/adversarial tests** and **43 selected Chromium tests**, including Base/Small scalar/SIMD performance checks, six controlled stereo monitoring scenarios, and Small streams using embedded/static Worklets. Eight production stream/React demo cases verified mono inference, recovery, coarse clocks and periodic load bursts under the deployment subpath. Mobile hardware, Firefox and Safari validation for this correction remains pending. The earlier offline/parallel validation also matched legacy PCM/WAV results in Bun and production WAV round trips; see [parallel processing results and limitations](docs/offline-parallel-processing.md).
 
 ---
 

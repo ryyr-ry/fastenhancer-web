@@ -13,6 +13,7 @@ export interface Option<TValue extends string> {
 export interface InputSession {
   kind: DemoSourceMode
   label: string
+  channelCount: 1 | 2
   stream: MediaStream
   stop: () => Promise<void>
 }
@@ -65,9 +66,17 @@ export async function createSampleInputSession(sampleId: SampleId): Promise<Inpu
   }
 
   const audioBuffer = await audioContext.decodeAudioData(await response.arrayBuffer())
+  const channelCount = audioBuffer.numberOfChannels
+  if (channelCount !== 1 && channelCount !== 2) {
+    await audioContext.close().catch(() => undefined)
+    throw new Error('Only mono and stereo sample audio is supported')
+  }
   const source = audioContext.createBufferSource()
   const gainNode = audioContext.createGain()
   const destination = audioContext.createMediaStreamDestination()
+  // The destination defaults to stereo even for a mono buffer. Preserve its
+  // actual layout so the stream/React APIs do not run two mono engines for it.
+  destination.channelCount = channelCount
 
   source.buffer = audioBuffer
   source.loop = true
@@ -82,6 +91,7 @@ export async function createSampleInputSession(sampleId: SampleId): Promise<Inpu
   return {
     kind: 'sample',
     label: sampleId,
+    channelCount,
     stream: destination.stream,
     stop: async () => {
       if (closed) {
@@ -111,6 +121,7 @@ export async function requestMicrophoneSession(): Promise<InputSession> {
   return {
     kind: 'microphone',
     label: 'Live microphone',
+    channelCount: 1,
     stream,
     stop: async () => {
       stopMediaStream(stream)

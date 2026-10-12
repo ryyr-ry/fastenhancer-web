@@ -98,6 +98,7 @@ export function VanillaPage() {
       const session = await input.prepareInputSession()
       const model = await loadModel(modelSize, { baseUrl: './assets/wasm/' })
       const sd = await model.createStreamDenoiser(session.stream, {
+        channelCount: session.channelCount,
         workletUrl: './assets/worklet/processor.js',
         onWarning: (msg) => setWarning(msg),
         onAutoBypass: setAutoPassthrough,
